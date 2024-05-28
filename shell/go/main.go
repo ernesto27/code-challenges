@@ -77,7 +77,13 @@ func main() {
 
 		}
 
-		cmd := exec.Command(command[0], command[1:]...)
+		var cmd *exec.Cmd
+		if strings.Contains(input, "|") {
+			cmd = exec.Command("bash", "-c", input)
+		} else {
+			cmd = exec.Command(command[0], command[1:]...)
+		}
+
 		cmd.Dir = dir
 		output, err := cmd.Output()
 
@@ -87,5 +93,6 @@ func main() {
 		}
 
 		fmt.Print(string(output))
+
 	}
 }
