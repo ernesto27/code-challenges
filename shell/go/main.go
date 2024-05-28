@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
+	"os/user"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func main() {
@@ -15,6 +19,38 @@ func main() {
 		return
 	}
 	fmt.Println("Current directory:", dir)
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT)
+	go func() {
+		for {
+			<-sigs
+			fmt.Print("\nccsh> ")
+		}
+	}()
+
+	currentUser, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+
+	homeDir := currentUser.HomeDir
+	configFolder := ".config/ccsh"
+	configFolderPath := filepath.Join(homeDir, configFolder)
+	fmt.Println(configFolderPath)
+
+	if _, err := os.Stat(configFolderPath); os.IsNotExist(err) {
+		err := os.Mkdir(configFolderPath, 0700)
+		if err != nil {
+			panic(err)
+		}
+	}
+	fileData := configFolderPath + "/" + "ccsh.txt"
+	file, err := os.OpenFile(fileData, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(file)
 
 	for {
 		fmt.Print("ccsh> ")
