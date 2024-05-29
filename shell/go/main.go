@@ -29,28 +29,8 @@ func main() {
 		}
 	}()
 
-	currentUser, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-
-	homeDir := currentUser.HomeDir
-	configFolder := ".config/ccsh"
-	configFolderPath := filepath.Join(homeDir, configFolder)
-	fmt.Println(configFolderPath)
-
-	if _, err := os.Stat(configFolderPath); os.IsNotExist(err) {
-		err := os.Mkdir(configFolderPath, 0700)
-		if err != nil {
-			panic(err)
-		}
-	}
-	fileData := configFolderPath + "/" + "ccsh.txt"
-	file, err := os.OpenFile(fileData, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(file)
+	history := NewHistory()
+	defer history.file.Close()
 
 	for {
 		fmt.Print("ccsh> ")
@@ -71,28 +51,80 @@ func main() {
 			dir, err = os.Getwd()
 			if err != nil {
 				fmt.Println("Error:", err)
-				return
+				break
 			}
 			continue
-
 		}
 
-		var cmd *exec.Cmd
-		if strings.Contains(input, "|") {
-			cmd = exec.Command("bash", "-c", input)
+		var output []byte
+
+		if command[0] == "history" {
+			for _, value := range history.currentCommands {
+				output = append(output, []byte(fmt.Sprintf("%s\n", value))...)
+			}
+
 		} else {
-			cmd = exec.Command(command[0], command[1:]...)
+			var cmd *exec.Cmd
+			if strings.Contains(input, "|") {
+				cmd = exec.Command("bash", "-c", input)
+			} else {
+				cmd = exec.Command(command[0], command[1:]...)
+			}
+
+			cmd.Dir = dir
+			output, err = cmd.Output()
+
+			if err != nil {
+				fmt.Println("No such file or directory (os error 2)")
+				continue
+			}
 		}
 
-		cmd.Dir = dir
-		output, err := cmd.Output()
-
+		history.currentCommands = append(history.currentCommands, input)
+		_, err = history.file.WriteString(input + "\n")
 		if err != nil {
-			fmt.Println("No such file or directory (os error 2)")
-			continue
+			fmt.Println(err)
 		}
 
 		fmt.Print(string(output))
 
+	}
+}
+
+type History struct {
+	file            *os.File
+	currentCommands []string
+}
+
+func NewHistory() *History {
+	currentUser, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	homeDir := currentUser.HomeDir
+	configFolder := ".config/ccsh"
+	configFolderPath := filepath.Join(homeDir, configFolder)
+
+	if _, err := os.Stat(configFolderPath); os.IsNotExist(err) {
+		err := os.Mkdir(configFolderPath, 0700)
+		if err != nil {
+			panic(err)
+		}
+	}
+	fileData := configFolderPath + "/" + "ccsh.txt"
+	file, err := os.OpenFile(fileData, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	scanner := bufio.NewScanner(file)
+	historyCommands := []string{}
+	for scanner.Scan() {
+		historyCommands = append(historyCommands, scanner.Text())
+	}
+
+	return &History{
+		file:            file,
+		currentCommands: historyCommands,
 	}
 }
