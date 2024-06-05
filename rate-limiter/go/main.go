@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -25,8 +26,53 @@ func (rateLimite RateLimiter) addToken() {
 	}
 }
 
-func main() {
+type WindowSize struct {
+	seconds   int
+	counter   int
+	threshold int
+	mu        sync.Mutex
+}
 
+func (window *WindowSize) addCounter() bool {
+	window.mu.Lock()
+	defer window.mu.Unlock()
+
+	window.counter++
+	if window.counter > window.threshold {
+		fmt.Println("Too Many Requests")
+		return false
+	}
+	return true
+}
+
+func (window *WindowSize) resetCounter() {
+	for {
+		time.Sleep(time.Duration(window.seconds) * time.Second)
+		window.mu.Lock()
+		window.counter = 0
+		window.mu.Unlock()
+	}
+}
+
+func main() {
+	// window size
+	window := WindowSize{
+		seconds:   20,
+		counter:   0,
+		threshold: 5,
+	}
+
+	go window.resetCounter()
+
+	http.HandleFunc("/window", func(w http.ResponseWriter, r *http.Request) {
+		if window.addCounter() {
+			w.Write([]byte("request success"))
+		} else {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		}
+	})
+
+	// token bucket
 	rateLimiter := RateLimiter{
 		capacity: 5,
 		bucket:   make(map[string]int),
