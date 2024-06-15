@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 )
 
 var hopByHopHeaders = []string{
@@ -25,12 +27,26 @@ func removeHopByHopHeaders(h http.Header) {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 
-	fmt.Println("Request received from: ", r.RemoteAddr)
-	fmt.Println("Request target: ", r.RequestURI)
+	// fmt.Println("Request received from: ", r.RemoteAddr)
+	// fmt.Println("Request target: ", r.RequestURI)
+	// fmt.Println("Request url: ", r.URL)
+	fmt.Printf("Client: %s request URL: %s", r.RemoteAddr, r.RequestURI)
+	fmt.Println()
+
+	bytes, err := os.ReadFile("forbidden-hosts.txt")
+	if err != nil {
+		fmt.Println("Error reading file")
+	} else {
+		for _, domain := range strings.Split(string(bytes), "\n") {
+			if strings.Contains(r.RequestURI, domain) {
+				http.Error(w, "Website not allowed: "+domain, http.StatusForbidden)
+				return
+			}
+		}
+	}
 
 	client := &http.Client{}
 
-	// Create a new request using http
 	req, err := http.NewRequest("GET", r.RequestURI, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -39,7 +55,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	removeHopByHopHeaders(r.Header)
 
-	// add header to the forwarded request
 	req.Header.Add("X-Forwarded-For", r.RemoteAddr)
 
 	resp, err := client.Do(req)
@@ -54,7 +69,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		data, err = io.ReadAll(resp.Body)
-		fmt.Println(string(data))
 		if err != nil {
 			w.Write([]byte("Error"))
 			return
@@ -62,9 +76,20 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.Body.Close()
 
-	// w.Header().Set("Content-Type", "application/json")
-	// json.NewEncoder(w).Encode(string(data))
+	forbidden, err := os.ReadFile("banned-words.txt")
+	if err != nil {
+		fmt.Println("Error reading file")
+	} else {
+		for _, word := range strings.Split(string(forbidden), "\n") {
+			if strings.Contains(strings.ToLower(string(data)), strings.ToLower(word)) {
+				http.Error(w, "Website content not allowed.", http.StatusForbidden)
+				return
+			}
+		}
 
+	}
+
+	fmt.Println(r.RemoteAddr, " ", resp.Status)
 	fmt.Fprint(w, string(data))
 
 }
@@ -72,4 +97,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/", handler)
 	http.ListenAndServe(":8989", nil)
+
+	fmt.Println("Server started on port 8989")
 }
