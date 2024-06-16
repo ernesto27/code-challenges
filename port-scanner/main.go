@@ -21,18 +21,19 @@ func main() {
 	}
 
 	hosts := strings.Split(*host, ",")
+
 	if *port != "" {
-		for _, h := range hosts {
-			fmt.Fprintf(os.Stdout, "Connecting to %s:%s\n", h, *port)
 
-			conn, err := net.DialTimeout("tcp", h+":"+*port, time.Second*5)
-			if err != nil {
-				continue
-			}
-			defer conn.Close()
+		fmt.Fprintf(os.Stdout, "Connecting to %s:%s\n", *host, *port)
 
-			fmt.Println("Port: " + *port + " is open")
+		conn, err := net.DialTimeout("tcp", *host+":"+*port, time.Second*5)
+		if err != nil {
+			os.Exit(0)
 		}
+		defer conn.Close()
+
+		fmt.Println("Port: " + *port + " is open")
+
 	} else {
 		var wg sync.WaitGroup
 		for _, h := range hosts {
