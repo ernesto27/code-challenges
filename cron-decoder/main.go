@@ -54,9 +54,27 @@ func (m *Minute) Validate() error {
 	return fmt.Errorf("invalid value for minute: %s", m.value)
 }
 
-type Hour struct{}
+type Hour struct {
+	value    string
+	response string
+}
 
 func (h *Hour) Validate() error {
+	if h.value == "*" {
+		h.response = "Every hour"
+		return nil
+	}
+
+	pattern := `^([0-9]|1[0-9]|2[0-3])$`
+	match, err := regexp.MatchString(pattern, h.value)
+	if err != nil {
+		return err
+	}
+	if !match {
+		return fmt.Errorf("invalid value for hour: %s", h.value)
+	}
+
+	h.response = fmt.Sprintf("At %s hour", h.value)
 	return nil
 }
 
