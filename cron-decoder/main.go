@@ -54,6 +54,16 @@ func (m *Minute) Validate() error {
 	return fmt.Errorf("invalid value for minute: %s", m.value)
 }
 
+type Hour struct{}
+
+func (h *Hour) Validate() error {
+	return nil
+}
+
+func (h *Hour) PrettyFormat() string {
+	return ""
+}
+
 func (m *Minute) PrettyFormat() string {
 	return m.response
 }
@@ -63,11 +73,9 @@ func main() {
 	var minute Cron
 
 	minute = &Minute{value: "13-440"}
-
 	if err := minute.Validate(); err != nil {
 		fmt.Println("Error: ", err)
 	}
-
 	fmt.Println(minute.PrettyFormat())
 
 }
