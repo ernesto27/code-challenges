@@ -88,7 +88,6 @@ func NewMinute(value string) *Minute {
 }
 
 func (m *Minute) Validate() error {
-
 	resp, err := validate(m.patterns, m.value)
 	if err != nil {
 		return err
@@ -159,19 +158,19 @@ func NewDayOfMonth(value string) *DayOfMonth {
 		patterns: map[string]pattern{
 			"*": {
 				regexp:   "*",
-				response: "Every day of month",
+				response: "every day of month",
 			},
 			"number": {
 				regexp:   `^([1-9]|[1-2][0-9]|[3][0-1])$`,
-				response: "On day of month %s",
+				response: "on day of month %s",
 			},
 			"separator": {
 				regexp:   `^([1-9]|[1-2][0-9]|[3][0-1]),([1-9]|[1-2][0-9]|[3][0-1])$`,
-				response: "On day of month %s and %s",
+				response: "on day of month %s and %s",
 			},
 			"range": {
 				regexp:   `^([1-9]|[1-2][0-9]|[3][0-1])-([1-9]|[1-2][0-9]|[3][0-1])$`,
-				response: "On every day of month from %s to %s",
+				response: "on every day of month from %s to %s",
 			},
 		},
 	}
@@ -195,6 +194,7 @@ type Month struct {
 	value    string
 	response string
 	patterns map[string]pattern
+	months   map[string]string
 }
 
 func NewMonth(value string) *Month {
@@ -203,52 +203,164 @@ func NewMonth(value string) *Month {
 		patterns: map[string]pattern{
 			"*": {
 				regexp:   "*",
-				response: "Every month",
+				response: "every month",
 			},
 			"number": {
-				regexp:   `^([1-9]|1[0-2])$`,
+				regexp:   `^([1-9]|1[0-2]|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$`,
 				response: "in %s",
 			},
 			"separator": {
-				regexp:   `^([1-9]|1[0-2]),([1-9]|1[0-2])$`,
+				regexp:   `^([1-9]|1[0-2]|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC),([1-9]|1[0-2]|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$`,
 				response: "in %s and %s",
 			},
 			"range": {
-				regexp:   `^([1-9]|1[0-2])-([1-9]|1[0-2])$`,
+				regexp:   `^([1-9]|1[0-2]|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)-([1-9]|1[0-2]|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$`,
 				response: "from %s to %s",
 			},
+		},
+		months: map[string]string{
+			"1":   "January",
+			"2":   "February",
+			"3":   "March",
+			"4":   "April",
+			"5":   "May",
+			"6":   "June",
+			"7":   "July",
+			"8":   "August",
+			"9":   "September",
+			"10":  "October",
+			"11":  "November",
+			"12":  "December",
+			"JAN": "January",
+			"FEB": "February",
+			"MAR": "March",
+			"APR": "April",
+			"MAY": "May",
+			"JUN": "June",
+			"JUL": "July",
+			"AUG": "August",
+			"SEP": "September",
+			"OCT": "October",
+			"NOV": "November",
+			"DEC": "December",
 		},
 	}
 	return month
 }
 
 func (m *Month) Validate() error {
-	resp, err := validate(m.patterns, m.value)
+	resp, err := validate2(m.value, m.patterns, m.months)
 	if err != nil {
 		return err
 	}
+
 	m.response = resp
 	return nil
 }
 
 func (m *Month) PrettyFormat() string {
-	months := []string{
-		"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
-	}
-
-	for x := 1; x <= 12; x++ {
-		pattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(fmt.Sprintf("%d", x)))
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			continue
-		}
-
-		if re.MatchString(m.response) {
-			m.response = re.ReplaceAllString(m.response, months[x-1])
-		}
-	}
-
 	return m.response
+}
+
+type DayOfWeek struct {
+	value    string
+	response string
+	patterns map[string]pattern
+	days     map[string]string
+}
+
+func NewDayOfWeek(value string) *DayOfWeek {
+	dayOfWeek := &DayOfWeek{
+		value: value,
+		patterns: map[string]pattern{
+			"*": {
+				regexp:   "*",
+				response: "every day of week",
+			},
+			"number": {
+				regexp:   `^([0-6]|MON|TUE|WED|THU|FRI|SAT|SUN)$`,
+				response: "on day of week %s",
+			},
+			"separator": {
+				regexp:   `^([0-6]|MON|TUE|WED|THU|FRI|SAT|SUN),([0-6]|MON|TUE|WED|THU|FRI|SAT|SUN)$`,
+				response: "on %s and %s",
+			},
+			"range": {
+				regexp:   `^([0-6]|MON|TUE|WED|THU|FRI|SAT|SUN)-([0-6]|MON|TUE|WED|THU|FRI|SAT|SUN)$`,
+				response: "from %s to %s",
+			},
+		},
+		days: map[string]string{
+			"0":   "Sunday",
+			"1":   "Monday",
+			"2":   "Tuesday",
+			"3":   "Wednesday",
+			"4":   "Thursday",
+			"5":   "Friday",
+			"6":   "Saturday",
+			"MON": "Monday",
+			"TUE": "Tuesday",
+			"WED": "Wednesday",
+			"THU": "Thursday",
+			"FRI": "Friday",
+			"SAT": "Saturday",
+			"SUN": "Sunday",
+		},
+	}
+	return dayOfWeek
+}
+
+func (d *DayOfWeek) Validate() error {
+	resp, err := validate2(d.value, d.patterns, d.days)
+	if err != nil {
+		return err
+	}
+
+	d.response = resp
+	return nil
+}
+
+func (d *DayOfWeek) PrettyFormat() string {
+	return d.response
+}
+
+func validate2(value string, patterns map[string]pattern, days map[string]string) (string, error) {
+	var response string
+	if value == "*" {
+		response = patterns["*"].response
+		return response, nil
+	}
+
+	reg := patterns["number"].regexp
+	match, err := regexp.MatchString(reg, value)
+	if err != nil {
+		return "", err
+	}
+	if match {
+		response = fmt.Sprintf(patterns["number"].response, days[value])
+		return response, nil
+	}
+
+	pattern := patterns["separator"].regexp
+	re := regexp.MustCompile(pattern)
+
+	matches := re.FindStringSubmatch(value)
+	if matches != nil {
+		response = fmt.Sprintf(patterns["separator"].response, days[matches[1]], days[matches[2]])
+		return response, nil
+	}
+
+	pattern = patterns["range"].regexp
+	re = regexp.MustCompile(pattern)
+
+	matches = re.FindStringSubmatch(value)
+	if matches != nil {
+		response = fmt.Sprintf(patterns["range"].response, days[matches[1]], days[matches[2]])
+		return response, nil
+	}
+
+	return "", fmt.Errorf("invalid value: %s", value)
+
 }
 
 func main() {
@@ -256,14 +368,15 @@ func main() {
 	// param := os.Args[1]
 	// fmt.Println(param)
 
-	cron := []string{"5", "10,20", "31", "1-12"}
+	cron := []string{"5", "10,20", "31", "JAN,JUL", "0,1"}
 
 	minute := NewMinute(cron[0])
 	hour := NewHour(cron[1])
 	dayOfMonth := NewDayOfMonth(cron[2])
 	month := NewMonth(cron[3])
+	dayOfWeek := NewDayOfWeek(cron[4])
 
-	crontab := []Cron{minute, hour, dayOfMonth, month}
+	crontab := []Cron{minute, hour, dayOfMonth, month, dayOfWeek}
 
 	for _, c := range crontab {
 		if err := c.Validate(); err != nil {
