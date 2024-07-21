@@ -1,6 +1,10 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,21 +26,24 @@ func newSed(cmd, input string) (*Sed, error) {
 	if len(values) >= 3 {
 		patternVal = values[1]
 		replacementVal = values[2]
-	} else if len(values) == 2 {
+	} else {
 		cmd = cmd[:len(cmd)-1]
 		values = strings.Split(cmd, ",")
 
-		f, err := strconv.Atoi(values[0])
-		if err != nil {
-			return nil, err
+		if len(values) == 2 {
+			f, err := strconv.Atoi(values[0])
+			if err != nil {
+				return nil, err
+			}
+			t, err := strconv.Atoi(values[1])
+			if err != nil {
+				return nil, err
+			}
+			fromRange = f
+			toRange = t
+		} else {
+			patternVal = values[0]
 		}
-		t, err := strconv.Atoi(values[1])
-		if err != nil {
-			return nil, err
-		}
-
-		fromRange = f
-		toRange = t
 	}
 
 	return &Sed{
@@ -100,30 +107,57 @@ func (s *Sed) doubleSpacing() string {
 	return resp
 }
 
+func (s *Sed) removeTrailingSpaces() string {
+	resp := strings.TrimSpace(s.input)
+	return resp
+}
+
 func main() {
-	//cmd := "s/\"/44/g"
-	cmd := "/roads/p"
 
-	text := "\"Your heart is the size of an ocean. Go find yourself in is hidden depths size.\""
-	sed, err := newSed(cmd, text)
-	if err != nil {
-		panic(err)
+	n := flag.String("n", "", "Print the line number")
+	flag.Parse()
+
+	if *n == "" {
+
+		pattern := os.Args[1]
+		file := os.Args[2]
+
+		f, err := os.Open(file)
+		if err != nil {
+			fmt.Println("Error opening file: ", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+
+		fileContent, err := io.ReadAll(f)
+		if err != nil {
+			fmt.Println("Error reading file: ", err)
+			os.Exit(1)
+		}
+
+		sed, err := newSed(pattern, string(fileContent))
+		if err != nil {
+			fmt.Println("Error creating Sed object: ", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(sed.doReplace())
+	} else {
+		reader := os.Stdin
+		stdContent, err := io.ReadAll(reader)
+		if err != nil {
+			fmt.Println("Error reading input: ", err)
+			os.Exit(1)
+		}
+
+		sed, err := newSed(*n, string(stdContent))
+		if err != nil {
+			fmt.Println("Error creating Sed object: ", err)
+			os.Exit(1)
+		}
+
+		resp := sed.rangeLines()
+		fmt.Println(resp)
 	}
-
-	sed.doReplace()
-
-	// values := strings.Split(cmd, "/")
-
-	// patternVal := values[1]
-	// replacementVal := values[2]
-
-	// text := "\"Your heart is the size of an ocean. Go find yourself in is hidden depths size.\""
-
-	// pattern := regexp.MustCompile(patternVal)
-
-	// // Replace all occurrences of "this" with "that"
-	// replacedText := pattern.ReplaceAllString(text, replacementVal)
-
-	// fmt.Println(replacedText)
 
 }

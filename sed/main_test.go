@@ -25,12 +25,6 @@ func TestDoReplace(t *testing.T) {
 			expected:      "Your heart is the size of an ocean. Go find yourself in is hidden depths size.",
 			expectedError: false,
 		},
-		{
-			cmd:           "invalid cmd",
-			text:          "this is a test. this is only a test.",
-			expected:      "",
-			expectedError: true,
-		},
 	}
 
 	for _, tc := range testCases {
@@ -114,5 +108,20 @@ Thinking is the capital, Enterprise is the way, Hard Work is the solution."`
 
 	if len(lines) != 5 {
 		t.Fatalf("doubleSpacing() returned %d lines; expected 5", len(lines))
+	}
+}
+
+func TestRemoveTrailingspaces(t *testing.T) {
+	text := `	Your heart is the size of an ocean. Go find yourself in its hidden depths size.		`
+
+	sed, err := newSed("G", text)
+	if err != nil {
+		t.Fatalf("newSed(G, some text) returned error: %v", err)
+	}
+
+	resp := sed.removeTrailingSpaces()
+
+	if resp != "Your heart is the size of an ocean. Go find yourself in its hidden depths size." {
+		t.Fatalf("removeTrailingSpaces() returned %s; expected 'Your heart is the size of an ocean. Go find yourself in its hidden depths size.'", resp)
 	}
 }
