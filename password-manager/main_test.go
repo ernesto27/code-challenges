@@ -48,10 +48,7 @@ func TestCreateVault(t *testing.T) {
 	password := "testpass"
 
 	filePath := filepath.Join(vault.configFolderPath, name)
-	err = os.Remove(filePath)
-	if err != nil {
-		t.Errorf("Error removing test file: %v", err)
-	}
+	os.Remove(filePath)
 
 	err = vault.createVault(name, password)
 	if err != nil {
@@ -148,12 +145,16 @@ func TestGetPassword(t *testing.T) {
 		t.Errorf("Error adding password: %v", err)
 	}
 
-	_, err = vault.getPassword("facebook")
+	user, pass, err := vault.getPassword("facebook")
 	if err != nil {
 		t.Errorf("Error getting password: %v", err)
 	}
 
-	_, err = vault.getPassword("wrongpass")
+	if user != "myuser" || pass != "testpass" {
+		t.Error("Error getting password")
+	}
+
+	_, _, err = vault.getPassword("wrongpass")
 	if err == nil {
 		t.Error("Should return error when password not found")
 	}
