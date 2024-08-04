@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ const resetColor = "\033[0m"
 type Grep struct {
 }
 
-func (g *Grep) Run(filter string, content string, exclude bool) (string, error) {
+func (g *Grep) Run(filter string, content string, exclude bool, caseInsensitive bool) (string, error) {
 	if filter == "" {
 		return content, nil
 	}
@@ -22,11 +23,11 @@ func (g *Grep) Run(filter string, content string, exclude bool) (string, error) 
 	contentLines := strings.Split(content, "\n")
 	var result []string
 
-	// re, err := regexp.Compile("(?i)" + filter)
-	//excludePattern := fmt.Sprintf("^(?!.*%s).*", regexp.QuoteMeta(filter))
+	if caseInsensitive {
+		filter = "(?i)" + filter
+	}
 
 	re, err := regexp.Compile(filter)
-	//re, err := regexp.Compile(excludePattern)
 	if err != nil {
 		fmt.Println("Error compiling regex:", err)
 		return "", err
@@ -39,7 +40,6 @@ func (g *Grep) Run(filter string, content string, exclude bool) (string, error) 
 			}
 
 		} else {
-
 			coloredLine := re.ReplaceAllStringFunc(line, func(match string) string {
 				return redColor + match + resetColor
 			})
@@ -68,7 +68,7 @@ func (g *Grep) RunRecursive(filter string, initialPath string) (string, error) {
 				return err
 			}
 
-			filteredContent, err := g.Run(filter, string(content), false)
+			filteredContent, err := g.Run(filter, string(content), false, false)
 			if err != nil {
 				return err
 			}
@@ -93,51 +93,56 @@ func (g *Grep) RunRecursive(filter string, initialPath string) (string, error) {
 }
 
 func main() {
-	// if len(os.Args) < 3 {
-	// 	fmt.Println("Usage: grep <filter> <file>")
-	// 	return
-	// }
+	recursive := flag.Bool("r", false, "recursive search")
+	exclude := flag.Bool("v", false, "exclude response")
+	caseInsensitive := flag.Bool("i", false, "case insensitive search")
+	flag.Parse()
 
-	data, err := os.ReadFile("custom.txt")
-	if err != nil {
-		fmt.Println("Error reading file:", err)
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: grep <filter> <file>")
 		return
 	}
 
-	content := string(data)
-
 	grep := Grep{}
-	resp, err := grep.Run("Nirvana", content, true)
-	if err != nil {
-		fmt.Println("Error running grep:", err)
-		return
+
+	var resp string
+	var err error
+
+	if *recursive {
+		initialPath := os.Args[3]
+		if os.Args[3] == "*" {
+			initialPath = "."
+		}
+
+		fmt.Println("Initial path:", initialPath)
+
+		resp, err = grep.RunRecursive(os.Args[2], initialPath)
+		if err != nil {
+			fmt.Println("Error running grep:", err)
+			return
+		}
+	} else {
+		filter := os.Args[1]
+		filePath := os.Args[2]
+		if *exclude {
+			filter = os.Args[2]
+			filePath = os.Args[3]
+		}
+
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Println("Error reading file:", err)
+			return
+		}
+
+		content := string(data)
+		resp, err = grep.Run(filter, content, *exclude, *caseInsensitive)
+		if err != nil {
+			fmt.Println("Error running grep:", err)
+			return
+		}
 	}
 
 	fmt.Println(resp)
-
-	// return
-
-	// data, err := os.ReadFile("rockbands.txt")
-	// if err != nil {
-	// 	fmt.Println("Error reading file:", err)
-	// 	return
-	// }
-
-	// grep := Grep{}
-	// resp, err := grep.Run("j", string(data))
-	// if err != nil {
-	// 	fmt.Println("Error running grep:", err)
-	// 	return
-	// }
-
-	//fmt.Println(resp)
-
-	// grep := Grep{}
-	// resp, err := grep.RunRecursive("Madonna", ".")
-	// if err != nil {
-	// 	fmt.Println("Error running grep:", err)
-	// 	return
-	// }
-	// fmt.Println(resp)
 
 }

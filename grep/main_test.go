@@ -4,37 +4,95 @@ import (
 	"testing"
 )
 
-func TestRunEmptyFilter(t *testing.T) {
-	grep := Grep{}
+type GrepTest struct {
+	name            string
+	filter          string
+	content         string
+	exclude         bool
+	caseInsensitive bool
+	expected        string
+}
 
-	content := "Hello\nWorld\n"
-	filter := ""
-
-	result, err := grep.Run(filter, content, false)
-	if err != nil {
-		t.Error("Error should be nil")
+func TestGrep_Run(t *testing.T) {
+	tests := []GrepTest{
+		{
+			name:            "Empty Filter",
+			filter:          "",
+			content:         "Hello\nWorld\n",
+			exclude:         false,
+			caseInsensitive: false,
+			expected:        "Hello\nWorld\n",
+		},
+		{
+			name:            "Filter with 'M'",
+			filter:          "M",
+			content:         "Metallica\nNirvana\nMegadeth",
+			exclude:         false,
+			caseInsensitive: false,
+			expected:        redColor + "M" + resetColor + "etallica\n" + redColor + "M" + resetColor + "egadeth",
+		},
+		{
+			name:            "Exclude Filter with 'M'",
+			filter:          "M",
+			content:         "Metallica\nNirvana\nMegadeth",
+			exclude:         true,
+			caseInsensitive: false,
+			expected:        "Nirvana",
+		},
+		{
+			name:            "Filter with \\d to match numbers",
+			filter:          "\\d+",
+			content:         "Metallica\nNirvana\nMegadeth\n1",
+			exclude:         false,
+			caseInsensitive: false,
+			expected:        redColor + "1" + resetColor,
+		},
+		{
+			name:            "Filter with \\w to match words",
+			filter:          "\\w+",
+			content:         "!\nmystring\n@",
+			exclude:         false,
+			caseInsensitive: false,
+			expected:        redColor + "mystring" + resetColor,
+		},
+		{
+			name:            "Case Insensitive Filter with 'm'",
+			filter:          "m",
+			content:         "Metallica\nNirvana\nMegadeth",
+			exclude:         false,
+			caseInsensitive: true,
+			expected:        redColor + "M" + resetColor + "etallica\n" + redColor + "M" + resetColor + "egadeth",
+		},
 	}
 
-	if result != content {
-		t.Error("Result should be equal to content")
+	grep := Grep{}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := grep.Run(test.filter, test.content, test.exclude, test.caseInsensitive)
+			if err != nil {
+				t.Error("Error should be nil")
+			}
+
+			if result != test.expected {
+				t.Errorf("Result should be equal to %s, got %s", test.expected, result)
+			}
+		})
 	}
 }
 
-func TestRunWithFilter(t *testing.T) {
-	const redColor = "\033[31m"
-	const resetColor = "\033[0m"
-
+func TestRecursive(t *testing.T) {
 	grep := Grep{}
 
-	content := "Metallica\nNirvana\nMegadeth"
-	filter := "M"
+	initialPath := "./unit-test"
+	filter := "Nirvana"
 
-	result, err := grep.Run(filter, content, false)
+	result, err := grep.RunRecursive(filter, initialPath)
 	if err != nil {
 		t.Error("Error should be nil")
 	}
 
-	expected := redColor + "M" + resetColor + "etallica\n" + redColor + "M" + resetColor + "egadeth"
+	expected := "unit-test/custom.txt:" + redColor + "Nirvana" + resetColor + " text\nunit-test/custom.txt:" + redColor + "Nirvana" + resetColor + " text2"
 
 	if result != expected {
 		t.Errorf("Result should be equal to %s, got %s", expected, result)
