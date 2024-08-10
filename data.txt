@@ -1,0 +1,30 @@
+The command *2\r\n$3\r\nget\r\n$3\r\nkey\r\n is a Redis command formatted using the RESP protocol to get the value of the key named "key".
+
+Possible Responses
+If the key exists and has a value:
+$5\r\nvalue\r\n
+
+If the value is, for example, "value", the response will be:
+Here, $5 indicates that the bulk string length is 5 bytes, followed by the actual value "value".
+
+
+If the key does not exist:
+$-1\r\n
+
+
+The response will be:
+Here, $-1 indicates that the key does not exist.
+
+
+If the key exists but has no value (empty string):
+
+The response will be:
+$0\r\n\r\n
+
+Here, $0 indicates that the bulk string length is 0 bytes, followed by an empty string.
+Example
+Assuming the key "key" has the value "hello":
+
+If the key "key" does not exist:
+
+hardcoded-credentials Embedding credentials in source code risks unauthorized access
