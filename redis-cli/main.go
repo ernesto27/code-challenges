@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -12,9 +14,24 @@ import (
 )
 
 type RedisClient struct {
-	conn net.Conn
-	host string
-	port string
+	conn      net.Conn
+	host      string
+	port      string
+	commands  map[string]Command
+	cmdValues []string
+}
+
+type Command struct {
+	Arguments []Argument `json:"arguments"`
+}
+
+type Argument struct {
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	KeySpecIndex int    `json:"key_spec_index"`
+	Optional     bool   `json:"optional"`
+	Token        string `json:"token"`
+	Arguments    []Argument
 }
 
 func NewRedisClient(host string, port string) (*RedisClient, error) {
@@ -23,10 +40,39 @@ func NewRedisClient(host string, port string) (*RedisClient, error) {
 		fmt.Println("Error connecting to Redis:", err)
 		return nil, err
 	}
+
+	cmdValues := []string{"gets", "set"}
+	commands := make(map[string]Command)
+
+	for _, cmd := range cmdValues {
+		file, err := os.Open("commands/" + cmd + ".json")
+		if err != nil {
+			fmt.Println("Error opening file:", err)
+			continue
+		}
+		defer file.Close()
+
+		byteValue, err := io.ReadAll(file)
+		if err != nil {
+			fmt.Println("Error reading file:", err)
+			continue
+		}
+		var data map[string]Command
+		err = json.Unmarshal(byteValue, &data)
+		if err != nil {
+			fmt.Println("Error unmarshalling JSON:", err)
+			continue
+		}
+
+		commands[cmd] = data[strings.ToUpper(cmd)]
+	}
+
 	return &RedisClient{
-		conn: conn,
-		host: host,
-		port: port,
+		conn:      conn,
+		host:      host,
+		port:      port,
+		commands:  commands,
+		cmdValues: cmdValues,
 	}, nil
 }
 
@@ -69,8 +115,44 @@ func (r *RedisClient) execute(args ...string) (string, error) {
 	return response, nil
 }
 
+func (r *RedisClient) getSuggestion(command string) string {
+	getCommand := r.commands[command]
+
+	var suggest string
+	for _, arg := range getCommand.Arguments {
+		if arg.Type == "oneof" {
+
+			suggest += "["
+			for idx, childArg := range arg.Arguments {
+				var extra string
+				if !strings.EqualFold(childArg.Token, childArg.Name) {
+					extra = " " + childArg.Name
+				}
+				if idx == len(arg.Arguments)-1 {
+					suggest += childArg.Token + extra
+				} else {
+					suggest += fmt.Sprintf("%s%s|", childArg.Token, extra)
+				}
+			}
+			suggest += "] "
+		} else {
+			if arg.Optional {
+				suggest += fmt.Sprintf("[%s] ", arg.Token)
+			} else {
+				suggest += fmt.Sprintf("%s ", arg.Name)
+			}
+		}
+	}
+
+	if suggest == "" {
+		return ""
+	}
+
+	return "\033[90m" + suggest + "\033[0m"
+}
+
 func main() {
-	// Connect to Redis server
+
 	redisClient, err := NewRedisClient("localhost", "6379")
 	if err != nil {
 		panic(err)
@@ -84,20 +166,16 @@ func main() {
 	defer keyboard.Close()
 
 	var value string
+	var suggest string
 	for {
 		fmt.Print("\033[2K\033[G")
 
-		suggest := "\033[90msuggest\033[0m"
-		fmt.Print("$localhost:6379> ", value+" "+suggest)
-		var err error
-		var key keyboard.Key
-
+		fmt.Print("$localhost:6379> ", value+suggest)
 		char, key, err := keyboard.GetKey()
 		if err != nil {
 			fmt.Println("Error getting key:", err)
 			break
 		}
-		//fmt.Printf("You pressed: rune %q, key %X\r\n", char, key)
 
 		switch key {
 		case keyboard.KeyEnter:
@@ -116,7 +194,7 @@ func main() {
 			fmt.Println(resp)
 			value = ""
 
-		case keyboard.KeyEsc:
+		case keyboard.KeyCtrlC:
 			fmt.Println("ESC pressed. Exiting...")
 			return
 
@@ -129,6 +207,14 @@ func main() {
 
 		default:
 			value += string(char)
+		}
+
+		lowerValue := strings.ToLower(value)
+
+		if lowerValue == "set " || lowerValue == "get " {
+			suggest = redisClient.getSuggestion(lowerValue[:len(lowerValue)-1])
+		} else {
+			suggest = ""
 		}
 
 	}
