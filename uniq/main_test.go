@@ -15,8 +15,7 @@ line4`
 	expected := `line1
 line2
 line3
-line4
-`
+line4`
 
 	uniq := Uniq{}
 	resp := uniq.Run(text)
@@ -33,8 +32,7 @@ line4`
 	expected := `line1
 line2
 line3
-line4
-`
+line4`
 	uniq := Uniq{}
 	uniq.Run(text)
 
@@ -72,11 +70,31 @@ line5`
 3 line2
 1 line3
 2 line4
-1 line5
-`
+1 line5`
 	uniq := Uniq{}
 	actual := uniq.Count(text)
 	if actual != expected {
 		t.Errorf("Count() = %s; expected %s", actual, expected)
+	}
+}
+
+func TestGetDuplicated(t *testing.T) {
+	text := `line1
+line2
+line2
+line3
+line5
+line1
+line2
+line3`
+
+	expected := `line2
+line1
+line3`
+
+	uniq := Uniq{}
+	actual := uniq.getDuplicated(text)
+	if actual != expected {
+		t.Errorf("getDuplicated() = %s; expected %s", actual, expected)
 	}
 }

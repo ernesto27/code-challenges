@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -23,6 +25,7 @@ func (uniq *Uniq) Run(text string) string {
 		response += fmt.Sprintf("%s\n", line)
 	}
 
+	response = strings.TrimSuffix(response, "\n")
 	uniq.response = response
 	return response
 }
@@ -85,40 +88,81 @@ func (uniq *Uniq) Count(text string) string {
 		response += fmt.Sprintf("%d %s\n", item.count, item.value)
 	}
 
+	response = strings.TrimSuffix(response, "\n")
+	return response
+}
+
+func (uniq *Uniq) getDuplicated(text string) string {
+	m := make(map[string]int)
+	lines := strings.Split(text, "\n")
+
+	var response string
+	for _, line := range lines {
+		if _, ok := m[line]; ok {
+			m[line]++
+
+			if m[line] == 2 {
+				response += fmt.Sprintf("%s\n", line)
+			}
+			continue
+		}
+		m[line] = 1
+	}
+
+	response = strings.TrimSuffix(response, "\n")
+	uniq.response = response
 	return response
 }
 
 func main() {
-
-	// scanner := bufio.NewScanner(os.Stdin)
-
-	// standarInput := ""
-
-	// for scanner.Scan() {
-	// 	line := scanner.Text()
-	// 	standarInput += fmt.Sprintf("%s", line)
-	// }
-
-	// fmt.Println(standarInput)
-
-	text := `line1
-line2
-line2
-line3
-line1
-line4
-line2
-line4
-line5`
+	outputPathFile := flag.String("o", "", "output path file")
+	count := flag.Bool("c", false, "show count")
+	duplicated := flag.Bool("d", false, "show duplicated")
+	flag.Parse()
 
 	uniq := Uniq{}
-	fmt.Println(uniq.Count(text))
+	var pathFile string
+	if len(os.Args) >= 2 {
+		pathFile = os.Args[len(os.Args)-1]
+	}
 
-	// 	resp := uniq.Run(text)
-	// 	fmt.Print(resp)
-	// 	err := uniq.Save("output.txt")
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+	if pathFile != "" {
+		fileContent, err := os.ReadFile(pathFile)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		text := string(fileContent)
+		resp := uniq.Run(text)
+
+		if *count {
+			resp = uniq.Count(text)
+		}
+
+		if *duplicated {
+			resp = uniq.getDuplicated(text)
+		}
+
+		fmt.Println(resp)
+	} else {
+		stdinContent, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		text := string(stdinContent)
+		resp := uniq.Run(text)
+
+		if *outputPathFile != "" {
+			err := uniq.Save(*outputPathFile)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Println(resp)
+		}
+	}
 
 }
