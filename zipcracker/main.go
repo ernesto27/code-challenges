@@ -5,28 +5,37 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/alexmullins/zip"
+	"os/exec"
+	"sync"
 )
 
 type ZipCracker struct {
 	fileName     string
-	file         *os.File
-	passwordFile zip.ReadCloser
+	fileZip      *os.File
+	filePassword *os.File
 }
 
-func NewZipCracker(file string) (*ZipCracker, error) {
-	f, err := os.Open(file)
+func NewZipCracker(fileNameZip string, filePasswordName string) (*ZipCracker, error) {
+	fileZip, err := os.Open(fileNameZip)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ZipCracker{file: f, fileName: file}, nil
+	filePassword, err := os.Open(filePasswordName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ZipCracker{
+		fileName:     fileNameZip,
+		fileZip:      fileZip,
+		filePassword: filePassword,
+	}, nil
 }
 
 func (z *ZipCracker) isValid() bool {
 	signature := make([]byte, 4)
-	_, err := z.file.Read(signature)
+	_, err := z.fileZip.Read(signature)
 	if err != nil {
 		return false
 	}
@@ -37,59 +46,62 @@ func (z *ZipCracker) isValid() bool {
 	return false
 }
 
-func (z *ZipCracker) findPassword() {
-	file, err := os.Open("realhuman_phill.txt")
-	if err != nil {
-		log.Fatal(err)
-	}
+func (z *ZipCracker) findPassword() (string, error) {
+	scanner := bufio.NewScanner(z.filePassword)
+	var wg sync.WaitGroup
+	var foundPassword string
+	semaphore := make(chan struct{}, 5)
 
-	defer file.Close()
-
-	// Read the file
-	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		if foundPassword != "" {
+			return foundPassword, nil
+		}
+
+		semaphore <- struct{}{}
 		password := scanner.Text()
 		fmt.Println("Trying password: ", password)
-		found, err := z.tryPassword(password)
 
-		if err != nil {
-			log.Fatal(err)
-		}
+		wg.Add(1)
 
-		if found {
-			fmt.Println("Password found: ", password)
-			return
-		}
+		go func(password string) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+			valid := z.tryPassword(password)
+			if valid {
+				// fmt.Println("Password found: ", password)
+				foundPassword = password
+				return
+			}
+		}(password)
 
 	}
+
+	wg.Wait()
+
+	if foundPassword != "" {
+		return foundPassword, nil
+	}
+
+	return "", fmt.Errorf("password not found")
+
 }
 
-func (z *ZipCracker) tryPassword(password string) (bool, error) {
-	r, err := zip.OpenReader(z.fileName)
-	if err != nil {
-		return false, err
-	}
-	defer r.Close()
+func (z *ZipCracker) tryPassword(password string) bool {
+	cmd := exec.Command("unzip", "-P", password, "-t", z.fileName)
+	_, err := cmd.CombinedOutput()
 
-	for _, f := range r.File {
-		if f.IsEncrypted() {
-			f.SetPassword(password)
-		}
-		rc, err := f.Open()
-		if err == nil {
-			rc.Close()
-			return true, nil
-		}
-	}
-	return false, nil
+	return err == nil
 }
 
 func main() {
-	zipCracker, err := NewZipCracker("go.zip")
+
+	zipCracker, err := NewZipCracker("file.zip", "realhuman_phill.txt")
+	// zipCracker, err := NewZipCracker("file.zip", "password.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer zipCracker.file.Close()
+	defer zipCracker.fileZip.Close()
+	defer zipCracker.filePassword.Close()
 
 	if zipCracker.isValid() {
 		fmt.Println("Valid ZIP file")
@@ -97,11 +109,19 @@ func main() {
 		fmt.Println("Invalid ZIP file")
 	}
 
-	zipCracker.findPassword()
-
-	v, err := zipCracker.tryPassword("test")
+	resp, err := zipCracker.findPassword()
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(v)
+
+	fmt.Println("Password found: ", resp)
+
+	// valid := zipCracker.tryPassword("tes1t")
+	// if !valid {
+	// 	fmt.Println("Password is not valid")
+
+	// } else {
+	// 	fmt.Println(valid)
+
+	// }
 }
