@@ -94,9 +94,13 @@ func (z *ZipCracker) tryPassword(password string) bool {
 }
 
 func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <zip_file_name>")
+		os.Exit(1)
+	}
 
-	zipCracker, err := NewZipCracker("file.zip", "realhuman_phill.txt")
-	// zipCracker, err := NewZipCracker("file.zip", "password.txt")
+	zipFileName := os.Args[1]
+	zipCracker, err := NewZipCracker(zipFileName, "passwords.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
