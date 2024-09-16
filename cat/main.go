@@ -40,21 +40,24 @@ func (c *Cat) WithStdin(stdin *os.File) (*Cat, error) {
 	return c, nil
 }
 
-func (c *Cat) GetContentFile(showLineNumbers bool) (string, error) {
+func (c *Cat) GetContentFile(showLineNumbers, ignoreEmptyLines bool) (string, error) {
 	var resp string
 	for _, file := range c.files {
 		var buffer bytes.Buffer
 		reader := bufio.NewReader(file)
 
-		if showLineNumbers {
+		if showLineNumbers || ignoreEmptyLines {
 			scanner := bufio.NewScanner(reader)
 
 			lineNumber := 1
 			for scanner.Scan() {
 				lineNumberStr := fmt.Sprintf("%6d", lineNumber)
-				resp += fmt.Sprintf("%s %s\n", lineNumberStr, scanner.Text())
-
-				lineNumber++
+				if ignoreEmptyLines && strings.TrimSpace(scanner.Text()) == "" {
+					resp += "\n"
+				} else {
+					resp += fmt.Sprintf("%s %s\n", lineNumberStr, scanner.Text())
+					lineNumber++
+				}
 			}
 		} else {
 			_, err := buffer.ReadFrom(reader)
@@ -76,6 +79,7 @@ func (c *Cat) Close() {
 
 func main() {
 	showLineNumbers := flag.Bool("n", false, "show line numbers")
+	ignoreEmptyLines := flag.Bool("b", false, "ignore empty lines")
 	flag.Parse()
 
 	var content string
@@ -103,7 +107,7 @@ func main() {
 
 	defer cat.Close()
 
-	content, err := cat.GetContentFile(*showLineNumbers)
+	content, err := cat.GetContentFile(*showLineNumbers, *ignoreEmptyLines)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		os.Exit(1)

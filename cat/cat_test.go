@@ -6,7 +6,6 @@ import (
 )
 
 func TestCat_WithFiles(t *testing.T) {
-	// Create a temporary file
 	content := "Hello\nWorld\n"
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
@@ -21,14 +20,13 @@ func TestCat_WithFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test WithFiles
 	cat, err := NewCat().WithFiles(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("WithFiles failed: %v", err)
 	}
 	defer cat.Close()
 
-	result, err := cat.GetContentFile(false)
+	result, err := cat.GetContentFile(false, false)
 	if err != nil {
 		t.Fatalf("GetContentFile failed: %v", err)
 	}
@@ -39,7 +37,6 @@ func TestCat_WithFiles(t *testing.T) {
 }
 
 func TestCat_MultipleFiles(t *testing.T) {
-	// Create two temporary files
 	content1 := "File1\nContent\n"
 	content2 := "File2\nContent\n"
 	tmpfile1, err := os.CreateTemp("", "example1")
@@ -75,7 +72,7 @@ func TestCat_MultipleFiles(t *testing.T) {
 	}
 	defer cat.Close()
 
-	result, err := cat.GetContentFile(false)
+	result, err := cat.GetContentFile(false, false)
 	if err != nil {
 		t.Fatalf("GetContentFile failed: %v", err)
 	}
