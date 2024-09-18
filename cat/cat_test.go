@@ -8,7 +8,9 @@ import (
 // TODO UPDATE TESTS
 
 func TestCat_WithFiles(t *testing.T) {
-	content := "Hello\nWorld\n"
+	content := `Hello
+World
+`
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
 		t.Fatal(err)
@@ -39,8 +41,12 @@ func TestCat_WithFiles(t *testing.T) {
 }
 
 func TestCat_MultipleFiles(t *testing.T) {
-	content1 := "File1\nContent\n"
-	content2 := "File2\nContent\n"
+	content1 := `File1
+Content
+`
+	content2 := `File2
+Content
+`
 	tmpfile1, err := os.CreateTemp("", "example1")
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +93,10 @@ func TestCat_MultipleFiles(t *testing.T) {
 
 // New test cases
 func TestCat_WithNumbering(t *testing.T) {
-	content := "Line 1\nLine 2\nLine 3\n"
+	content := `Line 1
+Line 2
+Line 3
+`
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
 		t.Fatal(err)
@@ -112,14 +121,22 @@ func TestCat_WithNumbering(t *testing.T) {
 		t.Fatalf("GetContentFile failed: %v", err)
 	}
 
-	expected := "     1 Line 1\n     2 Line 2\n     3 Line 3\n"
+	expected := `     1 Line 1
+     2 Line 2
+     3 Line 3
+`
 	if result != expected {
 		t.Errorf("Expected content %q, got %q", expected, result)
 	}
 }
 
 func TestCat_WithSqueezeBlank(t *testing.T) {
-	content := "     Line 1\n\n\n     Line 2\n\n\n     Line 3\n"
+	content := `Line 1
+
+Line 2
+
+Line 3
+`
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
 		t.Fatal(err)
@@ -144,14 +161,24 @@ func TestCat_WithSqueezeBlank(t *testing.T) {
 		t.Fatalf("GetContentFile failed: %v", err)
 	}
 
-	expected := "     Line 1\n\n     Line 2\n\n     Line 3\n"
+	expected := `     1 Line 1
+
+     2 Line 2
+
+     3 Line 3
+`
 	if result != expected {
 		t.Errorf("Expected content %q, got %q", expected, result)
 	}
 }
 
-func TestCat_WithNumberingAndSqueezeBlank(t *testing.T) {
-	content := "Line 1\n\n\nLine 2\n\n\nLine 3\n"
+func TestCat_WithNumberingWithoutIgnoringEmptyLines(t *testing.T) {
+	content := `Line 1
+
+Line 3
+
+Line 5
+`
 	tmpfile, err := os.CreateTemp("", "example")
 	if err != nil {
 		t.Fatal(err)
@@ -171,12 +198,17 @@ func TestCat_WithNumberingAndSqueezeBlank(t *testing.T) {
 	}
 	defer cat.Close()
 
-	result, err := cat.GetContentFile(true, true)
+	result, err := cat.GetContentFile(true, false)
 	if err != nil {
 		t.Fatalf("GetContentFile failed: %v", err)
 	}
 
-	expected := "     1\tLine 1\n     2\t\n     3\tLine 2\n     4\t\n     5\tLine 3\n"
+	expected := `     1 Line 1
+     2 
+     3 Line 3
+     4 
+     5 Line 5
+`
 	if result != expected {
 		t.Errorf("Expected content %q, got %q", expected, result)
 	}
