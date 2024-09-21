@@ -5,13 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 type Cut struct {
-	fileDesc *os.File
-	records  []string
+	fileDesc   *os.File
+	recordList map[int][]string
+	delimiter  string
 }
 
 func NewCut(filename string) *Cut {
@@ -23,11 +25,16 @@ func NewCut(filename string) *Cut {
 	return &Cut{fileDesc: file}
 }
 
-func (c *Cut) Read(index string, delimiter string) ([]string, error) {
+func NewCutWithStdin() *Cut {
+	return &Cut{fileDesc: os.Stdin}
+}
+
+func (c *Cut) Read(index string, delimiter string) error {
 	if index == "" {
-		return nil, fmt.Errorf("index out of range")
+		return fmt.Errorf("index out of range")
 	}
 	reader := csv.NewReader(c.fileDesc)
+	c.delimiter = delimiter
 
 	if delimiter != "\t" {
 		newDelimenter := []rune(delimiter)
@@ -41,18 +48,17 @@ func (c *Cut) Read(index string, delimiter string) ([]string, error) {
 	for _, i := range indexToPrint {
 		indexVal, err := strconv.Atoi(i)
 		if err != nil {
-			return nil, fmt.Errorf("not valid index")
+			return fmt.Errorf("not valid index")
 		}
 
 		if indexVal <= 0 {
-			return nil, fmt.Errorf("not valid index")
+			return fmt.Errorf("not valid index")
 		}
 
 		indexList = append(indexList, indexVal)
 	}
 
-	resp := []string{}
-	resp2 := make([][]string, len(indexList))
+	m := make(map[int][]string)
 	for {
 		record, err := reader.Read()
 		if err != nil {
@@ -60,24 +66,34 @@ func (c *Cut) Read(index string, delimiter string) ([]string, error) {
 		}
 
 		for _, currIndex := range indexList {
-			if len(record) <= currIndex {
-				return resp, fmt.Errorf("index out of range 2")
+			if len(record) < currIndex {
+				return fmt.Errorf("index out of range 2")
 			}
-			fmt.Println("loop:", currIndex-1)
-			resp = append(resp, record[currIndex-1])
-			resp2[currIndex-1] = append(resp2[currIndex-1], record[currIndex-1])
+			m[currIndex-1] = append(m[currIndex-1], record[currIndex-1])
 		}
 
 	}
-	c.records = resp
-
-	fmt.Println("resp2:", resp2)
-	return resp, nil
+	c.recordList = m
+	return nil
 }
 
 func (c *Cut) Print() {
-	for _, record := range c.records {
-		fmt.Println(record)
+	var keys []int
+	for k := range c.recordList {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
+	for _, k := range keys {
+		fmt.Printf("%s%s", c.recordList[k][0], c.delimiter)
+	}
+	fmt.Println()
+
+	for i := 1; i < len(c.recordList[keys[0]]); i++ {
+		for _, k := range keys {
+			fmt.Printf("%s%s", c.recordList[k][i], c.delimiter)
+		}
+		fmt.Println()
 	}
 }
 
@@ -92,23 +108,35 @@ func main() {
 	flag.Parse()
 
 	fileName := flag.Args()
-	if len(fileName) == 0 {
-		fmt.Println("Please provide a filename as an argument")
-		return
+
+	stat, _ := os.Stdin.Stat()
+	var cut *Cut
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		cut = NewCutWithStdin()
+		if cut == nil {
+			return
+		}
+
+	} else {
+
+		if len(fileName) == 0 {
+			fmt.Println("Please provide a filename as an argument")
+			return
+		}
+
+		cut = NewCut(fileName[len(fileName)-1])
+		if cut == nil {
+			return
+		}
 	}
 
-	cut := NewCut(fileName[len(fileName)-1])
-	if cut == nil {
-		return
-	}
 	defer cut.Close()
 
-	_, err := cut.Read(*fieldIndex, *delimiter)
+	err := cut.Read(*fieldIndex, *delimiter)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		return
 	}
 
 	cut.Print()
-
 }
