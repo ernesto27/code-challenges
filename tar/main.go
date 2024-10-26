@@ -49,7 +49,7 @@ func (t *Tar) ListFiles() error {
 	return nil
 }
 
-func (t *Tar) ExtractFiles() error {
+func (t *Tar) ExtractFiles(path string) error {
 	_, err := t.file.Seek(0, 0)
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func (t *Tar) ExtractFiles() error {
 		if err != nil {
 			return err
 		}
-		file, err := os.Create(header.Name)
+		file, err := os.Create(path + "/" + header.Name)
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,6 @@ func (t *Tar) ExtractFiles() error {
 }
 
 func (t *Tar) CreateTar(args []string) error {
-	fmt.Println(args)
 	newTarFile, err := os.Create(t.newTarName)
 	if err != nil {
 		return err
@@ -152,6 +151,7 @@ func main() {
 	tf := flag.Bool("tf", false, "list files")
 	xf := flag.Bool("xf", false, "extract files")
 	cf := flag.Bool("cf", false, "create tar file")
+	C := flag.String("C", "", "extract to path")
 
 	flag.Parse()
 
@@ -194,7 +194,7 @@ func main() {
 	defer tar.Close()
 
 	if *xf {
-		err := tar.ExtractFiles()
+		err := tar.ExtractFiles(*C)
 		if err != nil {
 			fmt.Println("Error extracting files:", err)
 			os.Exit(1)
