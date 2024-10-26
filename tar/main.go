@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"syscall"
 )
 
@@ -110,13 +111,23 @@ func (t *Tar) CreateTar(args []string) error {
 			return fmt.Errorf("failed to get system-specific file info for %s", arg)
 		}
 
+		u, err := user.LookupId(fmt.Sprint(sysStat.Uid))
+		if err != nil {
+			return err
+		}
+
+		group, err := user.LookupGroupId(fmt.Sprint(sysStat.Gid))
+		if err != nil {
+			return err
+		}
+
 		header := &tar.Header{
 			Name:    file.Name(),
 			Size:    stat.Size(),
 			Mode:    int64(stat.Mode()),
 			ModTime: stat.ModTime(),
-			Uid:     int(sysStat.Uid),
-			Gid:     int(sysStat.Gid),
+			Uname:   u.Username,
+			Gname:   group.Name,
 		}
 
 		if err := tarWriter.WriteHeader(header); err != nil {
