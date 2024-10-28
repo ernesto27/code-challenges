@@ -9,12 +9,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type MemcacheServer struct {
 	port    string
 	clients map[net.Conn]Command
-	data    map[string]string
+	data    map[string]Data
 	mu      sync.Mutex
 }
 
@@ -26,6 +27,13 @@ type Command struct {
 	byteCount  int
 	value      string
 	noReply    bool
+	created    time.Time
+}
+
+type Data struct {
+	value      string
+	expiration int
+	createAt   time.Time
 }
 
 func (m *MemcacheServer) server() error {
@@ -49,18 +57,31 @@ func (m *MemcacheServer) server() error {
 	}
 }
 
-func (m *MemcacheServer) setData(key, value string) {
+func (m *MemcacheServer) setData(key string, data Data) {
 	m.mu.Lock()
-	m.data[key] = value
+	m.data[key] = data
 	m.mu.Unlock()
 }
 
-func (m *MemcacheServer) getData(key string) (string, error) {
-	value, ok := m.data[key]
+func (m *MemcacheServer) getData(key string) (Data, error) {
+	data, ok := m.data[key]
 	if !ok {
-		return "", fmt.Errorf("key not found")
+		return Data{}, fmt.Errorf("key not found")
 	}
-	return value, nil
+	return data, nil
+}
+
+func (m *MemcacheServer) deleteData(key string) {
+	m.mu.Lock()
+	delete(m.data, key)
+	m.mu.Unlock()
+}
+
+func (m *MemcacheServer) response(conn net.Conn, response string) {
+	_, err := conn.Write([]byte(response))
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func (m *MemcacheServer) removeCarriageReturn(s string) string {
@@ -75,7 +96,7 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 		command, err := reader.ReadString('\n')
 		if err != nil {
 			log.Println(err)
-			return
+			continue
 		}
 		command = strings.TrimSuffix(command, "\n")
 		err = m.parseCommand(conn, command)
@@ -84,35 +105,35 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 			switch m.clients[conn].name {
 			case "set":
 				if m.clients[conn].name != "" && m.clients[conn].value != "" {
-					m.setData(m.clients[conn].key, m.clients[conn].value)
+					m.setData(m.clients[conn].key, Data{
+						value:      m.clients[conn].value,
+						expiration: m.clients[conn].expiration,
+						createAt:   time.Now(),
+					})
 
 					if !m.clients[conn].noReply {
 						response := "STORED\r\n"
-						_, err = conn.Write([]byte(response))
-						if err != nil {
-							log.Println(err)
-							return
-						}
+						m.response(conn, response)
 					}
 					m.clients[conn] = Command{}
 				}
 
 			case "get":
-				value, err := m.getData(m.clients[conn].key)
+				data, err := m.getData(m.clients[conn].key)
 				if err != nil {
 					response := "END\r\n"
-					_, err = conn.Write([]byte(response))
-					if err != nil {
-						log.Println(err)
-						return
-					}
+					m.response(conn, response)
 				} else {
-					response := fmt.Sprintf("VALUE %s 0 %d\r\n%s\r\nEND\r\n", m.clients[conn].key, m.clients[conn].byteCount, value)
-					_, err = conn.Write([]byte(response))
-					if err != nil {
-						log.Println(err)
-						return
+					if m.checkExpiration(conn, data) {
+						response := "END\r\n"
+						m.response(conn, response)
+						m.deleteData(m.clients[conn].key)
+						m.clients[conn] = Command{}
+						continue
 					}
+
+					response := fmt.Sprintf("VALUE %s 0 %d\r\n%s\r\nEND\r\n", m.clients[conn].key, m.clients[conn].byteCount, data.value)
+					m.response(conn, response)
 				}
 				m.clients[conn] = Command{}
 			}
@@ -121,7 +142,6 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 }
 
 func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
-	// set username 0 0 4
 	args := strings.Split(command, " ")
 
 	if len(args) == 2 {
@@ -153,11 +173,17 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 					noReply = true
 				}
 			}
+
+			expirationValue, err := strconv.Atoi(args[3])
+			if err != nil {
+				return err
+			}
+
 			cmd := &Command{
 				name:       args[0],
 				key:        args[1],
 				flags:      0,
-				expiration: 0,
+				expiration: expirationValue,
 				byteCount:  byteCountValue,
 				noReply:    noReply,
 			}
@@ -169,12 +195,23 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 		if m.clients[conn].name != "" {
 			cmd := m.clients[conn]
 			cmd.value = command
+			cmd.created = time.Now().Add(-3 * time.Hour)
 			m.clients[conn] = cmd
 		}
 	}
 
 	return nil
+}
 
+func (m *MemcacheServer) checkExpiration(conn net.Conn, data Data) bool {
+	if data.expiration == 0 {
+		return false
+	}
+
+	duration := time.Since(data.createAt)
+	seconds := int(duration.Seconds())
+
+	return seconds > data.expiration
 }
 
 func main() {
@@ -184,7 +221,7 @@ func main() {
 	memecacheServer := &MemcacheServer{
 		port:    *port,
 		clients: make(map[net.Conn]Command),
-		data:    make(map[string]string),
+		data:    make(map[string]Data),
 	}
 	if err := memecacheServer.server(); err != nil {
 		log.Fatal(err)
