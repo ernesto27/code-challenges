@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const GET = "get"
+const SET = "set"
+const ADD = "add"
+const REPLACE = "replace"
+
 type MemcacheServer struct {
 	port    string
 	clients map[net.Conn]Command
@@ -103,7 +108,7 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 
 		if err == nil {
 			switch m.clients[conn].name {
-			case "set":
+			case SET:
 				if m.clients[conn].name != "" && m.clients[conn].value != "" {
 					m.setData(m.clients[conn].key, Data{
 						value:      m.clients[conn].value,
@@ -118,13 +123,30 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 					m.clients[conn] = Command{}
 				}
 
-			case "get":
+			case ADD:
+				if m.clients[conn].name != "" && m.clients[conn].value != "" {
+					if _, ok := m.data[m.clients[conn].key]; !ok {
+						m.setData(m.clients[conn].key, Data{
+							value:      m.clients[conn].value,
+							expiration: m.clients[conn].expiration,
+							createAt:   time.Now(),
+						})
+						response := "STORED\r\n"
+						m.response(conn, response)
+					} else {
+						response := "NOT_STORED\r\n"
+						m.response(conn, response)
+					}
+					m.clients[conn] = Command{}
+				}
+
+			case GET:
 				data, err := m.getData(m.clients[conn].key)
 				if err != nil {
 					response := "END\r\n"
 					m.response(conn, response)
 				} else {
-					if m.checkExpiration(conn, data) {
+					if m.checkExpiration(data) {
 						response := "END\r\n"
 						m.response(conn, response)
 						m.deleteData(m.clients[conn].key)
@@ -145,20 +167,22 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 	args := strings.Split(command, " ")
 
 	if len(args) == 2 {
-		if args[0] == "get" {
+		if args[0] == GET {
 			key := args[1]
 			key = m.removeCarriageReturn(key)
 			cmd := &Command{
-				name: "get",
+				name: GET,
 				key:  key,
 			}
 			m.clients[conn] = *cmd
 		} else {
 			return fmt.Errorf("invalid command")
 		}
+		return nil
+	}
 
-	} else if len(args) == 5 || len(args) == 6 {
-		if args[0] == "set" && args[1] != "" {
+	if len(args) == 5 || len(args) == 6 {
+		if (args[0] == SET || args[0] == ADD || args[0] == REPLACE) && args[1] != "" {
 			byteCount := args[4]
 			byteCount = m.removeCarriageReturn(byteCount)
 			byteCountValue, err := strconv.Atoi(byteCount)
@@ -191,19 +215,20 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 		} else {
 			return fmt.Errorf("invalid command")
 		}
-	} else {
-		if m.clients[conn].name != "" {
-			cmd := m.clients[conn]
-			cmd.value = command
-			cmd.created = time.Now().Add(-3 * time.Hour)
-			m.clients[conn] = cmd
-		}
+		return nil
+	}
+
+	if m.clients[conn].name != "" {
+		cmd := m.clients[conn]
+		cmd.value = command
+		cmd.created = time.Now().Add(-3 * time.Hour)
+		m.clients[conn] = cmd
 	}
 
 	return nil
 }
 
-func (m *MemcacheServer) checkExpiration(conn net.Conn, data Data) bool {
+func (m *MemcacheServer) checkExpiration(data Data) bool {
 	if data.expiration == 0 {
 		return false
 	}
