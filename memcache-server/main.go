@@ -299,12 +299,12 @@ func main() {
 	port := flag.String("p", "11211", "Port to listen on")
 	flag.Parse()
 
-	memecacheServer := &MemcacheServer{
+	memcacheServer := &MemcacheServer{
 		port:    *port,
 		clients: make(map[net.Conn]Command),
 		data:    make(map[string]Data),
 	}
-	if err := memecacheServer.server(); err != nil {
+	if err := memcacheServer.server(); err != nil {
 		log.Fatal(err)
 	}
 }
