@@ -16,6 +16,8 @@ const GET = "get"
 const SET = "set"
 const ADD = "add"
 const REPLACE = "replace"
+const PREPEND = "prepend"
+const APPEND = "append"
 
 type MemcacheServer struct {
 	port    string
@@ -93,6 +95,11 @@ func (m *MemcacheServer) removeCarriageReturn(s string) string {
 	return strings.TrimSuffix(s, "\r")
 }
 
+func (m *MemcacheServer) isValidCommand(conn net.Conn) bool {
+	resp := m.clients[conn].name != "" && m.clients[conn].value != ""
+	return resp
+}
+
 func (m *MemcacheServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
@@ -109,7 +116,7 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 		if err == nil {
 			switch m.clients[conn].name {
 			case SET:
-				if m.clients[conn].name != "" && m.clients[conn].value != "" {
+				if m.isValidCommand(conn) {
 					m.setData(m.clients[conn].key, Data{
 						value:      m.clients[conn].value,
 						expiration: m.clients[conn].expiration,
@@ -124,7 +131,7 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 				}
 
 			case ADD:
-				if m.clients[conn].name != "" && m.clients[conn].value != "" {
+				if m.isValidCommand(conn) {
 					if _, ok := m.data[m.clients[conn].key]; !ok {
 						m.setData(m.clients[conn].key, Data{
 							value:      m.clients[conn].value,
@@ -158,6 +165,52 @@ func (m *MemcacheServer) handleConnection(conn net.Conn) {
 					m.response(conn, response)
 				}
 				m.clients[conn] = Command{}
+			case REPLACE:
+				if m.isValidCommand(conn) {
+					if _, ok := m.data[m.clients[conn].key]; ok {
+						m.setData(m.clients[conn].key, Data{
+							value:      m.clients[conn].value,
+							expiration: m.clients[conn].expiration,
+							createAt:   time.Now(),
+						})
+						response := "STORED\r\n"
+						m.response(conn, response)
+					} else {
+						response := "NOT_STORED\r\n"
+						m.response(conn, response)
+					}
+					m.clients[conn] = Command{}
+				}
+
+			case APPEND:
+				if m.isValidCommand(conn) {
+					data, ok := m.getData(m.clients[conn].key)
+					if ok == nil {
+						data.value = data.value + m.clients[conn].value
+						m.setData(m.removeCarriageReturn(m.clients[conn].key), data)
+						response := "STORED\r\n"
+						m.response(conn, response)
+					} else {
+						response := "NOT_STORED\r\n"
+						m.response(conn, response)
+					}
+					m.clients[conn] = Command{}
+				}
+			case PREPEND:
+				if m.isValidCommand(conn) {
+					data, ok := m.getData(m.clients[conn].key)
+					if ok == nil {
+						data.value = m.clients[conn].value + data.value
+						m.setData(m.removeCarriageReturn(m.clients[conn].key), data)
+						response := "STORED\r\n"
+						m.response(conn, response)
+					} else {
+						response := "NOT_STORED\r\n"
+						m.response(conn, response)
+					}
+					m.clients[conn] = Command{}
+				}
+
 			}
 		}
 	}
@@ -182,7 +235,10 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 	}
 
 	if len(args) == 5 || len(args) == 6 {
-		if (args[0] == SET || args[0] == ADD || args[0] == REPLACE) && args[1] != "" {
+		if (args[0] == SET || args[0] == ADD ||
+			args[0] == REPLACE || args[0] == APPEND || args[0] == PREPEND) &&
+			args[1] != "" {
+
 			byteCount := args[4]
 			byteCount = m.removeCarriageReturn(byteCount)
 			byteCountValue, err := strconv.Atoi(byteCount)
@@ -220,7 +276,7 @@ func (m *MemcacheServer) parseCommand(conn net.Conn, command string) error {
 
 	if m.clients[conn].name != "" {
 		cmd := m.clients[conn]
-		cmd.value = command
+		cmd.value = m.removeCarriageReturn(command)
 		cmd.created = time.Now().Add(-3 * time.Hour)
 		m.clients[conn] = cmd
 	}
