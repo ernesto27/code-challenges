@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,10 +18,8 @@ type SiteGenerator struct {
 func NewSiteGenerator() *SiteGenerator {
 	publicFolder := "public"
 	err := os.Mkdir(publicFolder, 0755)
-	if err != nil {
-		if !os.IsExist(err) {
-			panic(err)
-		}
+	if err != nil && !os.IsExist(err) {
+		panic(err)
 	}
 
 	return &SiteGenerator{
@@ -35,7 +34,9 @@ func (s *SiteGenerator) Build() error {
 	}
 
 	wg := &sync.WaitGroup{}
-	errChan := make(chan error, len(files))
+	errChan := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	for _, file := range files {
 		fmt.Println(file)
@@ -44,9 +45,19 @@ func (s *SiteGenerator) Build() error {
 		go func(file string) {
 			defer wg.Done()
 
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			mdContent, err := os.ReadFile(file)
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
+				cancel()
 				return
 			}
 
@@ -54,14 +65,22 @@ func (s *SiteGenerator) Build() error {
 			htmlFile := filepath.Base(file[:len(file)-3] + ".html")
 			f, err := os.Create(filepath.Join(s.publicFolder, htmlFile))
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
+				cancel()
 				return
 			}
 			defer f.Close()
 
 			_, err = f.Write(htmlContent)
 			if err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
+				cancel()
 				return
 			}
 		}(file)
@@ -115,12 +134,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// 	http.HandleFunc("/", handler)
-	// 	http.ListenAndServe(":8080", nil)
-
-	sg := NewSiteGenerator()
-	err := sg.Build()
+	siteGenerator := NewSiteGenerator()
+	err := siteGenerator.Build()
 	if err != nil {
-		panic(err)
+		fmt.Println("Error:", err)
 	}
 }
