@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,10 +14,11 @@ import (
 )
 
 type SiteGenerator struct {
+	port         string
 	publicFolder string
 }
 
-func NewSiteGenerator() *SiteGenerator {
+func NewSiteGenerator(port string) *SiteGenerator {
 	publicFolder := "public"
 	err := os.Mkdir(publicFolder, 0755)
 	if err != nil && !os.IsExist(err) {
@@ -23,6 +26,7 @@ func NewSiteGenerator() *SiteGenerator {
 	}
 
 	return &SiteGenerator{
+		port:         port,
 		publicFolder: publicFolder,
 	}
 }
@@ -98,45 +102,35 @@ func (s *SiteGenerator) Build() error {
 	return nil
 }
 
-func renderTemplate(tmpl string, data interface{}) error {
-	// t, err := template.ParseFiles(tmpl)
-	// if err != nil {
-	// 	return err
-	// }
-	// f, err := ioutil.TempFile("", "*.html")
-	// if err != nil {
-	// 	return err
-	// }
-	// defer f.Close()
-	// return t.Execute(f, data)
-	return nil
-}
+func (s *SiteGenerator) Server() error {
+	http.Handle("/", http.FileServer(http.Dir(s.publicFolder)))
+	fmt.Printf("Server starting on http://localhost:%s\n", s.port)
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	// mdContent, err := os.ReadFile("content.md")
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// htmlContent := blackfriday.Run(mdContent)
-
-	// data := struct {
-	// 	Title   string
-	// 	Heading string
-	// 	Content template.HTML
-	// }{
-	// 	Title:   "My Page Title",
-	// 	Heading: "Welcome to My Page",
-	// 	Content: template.HTML(htmlContent),
-	// }
-	// renderTemplate(w, "template.html", data)
+	return http.ListenAndServe(":"+s.port, nil)
 }
 
 func main() {
-	siteGenerator := NewSiteGenerator()
-	err := siteGenerator.Build()
-	if err != nil {
-		fmt.Println("Error:", err)
+
+	build := flag.Bool("b", false, "Build the site")
+	server := flag.Bool("s", false, "Start the server")
+	port := flag.String("p", "8080", "Port to listen on")
+	flag.Parse()
+
+	siteGenerator := NewSiteGenerator(*port)
+
+	if *build {
+		err := siteGenerator.Build()
+		if err != nil {
+			log.Fatal("Build error:", err)
+		}
+		return
 	}
+
+	if *server {
+		if err := siteGenerator.Server(); err != nil {
+			log.Fatal("Server error:", err)
+		}
+	}
+
+	flag.PrintDefaults()
 }
