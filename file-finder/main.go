@@ -43,6 +43,8 @@ func (f *FileFinder) Find() error {
 				return nil
 			}
 
+			isSymlink := info.Mode()&os.ModeSymlink != 0
+
 			hashString, err := f.generateMD5(path)
 			if err != nil {
 				return err
@@ -54,16 +56,30 @@ func (f *FileFinder) Find() error {
 				hash: hashString,
 			}
 
-			fmt.Printf("%s\n", path)
+			var symLinkInfo string
+			if isSymlink {
+				originalPath, err := f.getOriginalPath(path)
+				if err != nil {
+					return err
+				}
+				symLinkInfo = " (symlink file) => " + originalPath
+			}
+
+			fmt.Printf("%s %s\n", path, symLinkInfo)
 
 			fileDuplicated, found := f.FindSameHash(file)
-			if found {
+			if found || isSymlink {
 				reader := bufio.NewReader(os.Stdin)
 				for {
-					fmt.Println("Which file should be deleted?")
-					fmt.Printf("  1) %s\n", file.name)
-					fmt.Printf("  2) %s\n", fileDuplicated.name)
-					fmt.Print("Enter 1 or 2: ")
+					if !isSymlink {
+						fmt.Println("Which file should be deleted?")
+						fmt.Printf("  1) %s\n", file.name)
+						fmt.Printf("  2) %s\n", fileDuplicated.name)
+						fmt.Print("Enter 1 or 2, or other key to keep: ")
+					} else {
+						fmt.Println("Symlink file found, do you want to remove it?")
+						fmt.Print("Enter 1 to remove or any other key to keep: ")
+					}
 
 					input, err := reader.ReadString('\n')
 					if err != nil {
@@ -75,6 +91,9 @@ func (f *FileFinder) Find() error {
 					case "1":
 						return os.Remove(file.name)
 					case "2":
+						if isSymlink {
+							return nil
+						}
 						return os.Remove(fileDuplicated.name)
 					default:
 						return nil
@@ -179,6 +198,24 @@ func (f *FileFinder) compareByteByByte(file1, file2 string) (bool, error) {
 			return false, nil
 		}
 	}
+}
+
+func (f *FileFinder) getOriginalPath(symlinkPath string) (string, error) {
+	originalPath, err := os.Readlink(symlinkPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read symlink: %w", err)
+	}
+	if !filepath.IsAbs(originalPath) {
+		dir := filepath.Dir(symlinkPath)
+		originalPath = filepath.Join(dir, originalPath)
+	}
+
+	_, err = os.Stat(originalPath)
+	if err != nil {
+		return "", fmt.Errorf("original file not found: %w", err)
+	}
+
+	return originalPath, nil
 }
 
 func main() {
