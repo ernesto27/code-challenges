@@ -1,0 +1,50 @@
+docker run -d \
+  --name mysql-db \
+  -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=1111 \
+  -e MYSQL_DATABASE=monitor-service \
+  -e MYSQL_USER=user \
+  -e MYSQL_PASSWORD=111 \
+  mysql:8.0
+
+
+CREATE TABLE urls (
+    id INT AUTO_INCREMENT,
+    url VARCHAR(255) NOT NULL UNIQUE,
+    frequency INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_url (url),
+    INDEX idx_frequency (frequency)
+);
+
+
+INSERT INTO urls (url, frequency) VALUES
+('https://www.google.com', 100),
+('https://github.com/trending', 50),
+('https://dev.mysql.com/doc', 25),
+('https://kubernetes.io/docs', 75),
+('https://docs.docker.com', 30),
+('https://www.youtube.com/tech', 85),
+('https://stackoverflow.com', 95),
+('https://aws.amazon.com/console', 40),
+('https://nodejs.org/docs', 20),
+('https://golang.org', 60);
+
+
+
+CREATE TABLE url_health_checks (
+    id INT AUTO_INCREMENT,
+    url_id INT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_code INT,
+    response_time_ms INT,
+    is_alive BOOLEAN NOT NULL DEFAULT false,
+    error_message VARCHAR(255),
+    PRIMARY KEY (id),
+    FOREIGN KEY (url_id) REFERENCES urls(id),
+    INDEX idx_created_at (created_at),
+    INDEX idx_status_code (status_code),
+    INDEX idx_is_alive (is_alive)
+)
