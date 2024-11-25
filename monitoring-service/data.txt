@@ -20,6 +20,22 @@ CREATE TABLE urls (
 );
 
 
+
+SELECT 
+    DATE(created_at) AS date,
+    AVG(response_time_ms) AS responseTime,
+    (SUM(is_alive) / COUNT(*)) * 100 AS uptime
+FROM 
+    url_health_checks
+WHERE 
+    url_id = 1 -- Replace with the specific URL ID
+GROUP BY 
+    DATE(created_at)
+ORDER BY 
+    DATE(created_at);
+
+
+
 INSERT INTO urls (url, frequency) VALUES
 ('https://www.google.com', 100),
 ('https://github.com/trending', 50),

@@ -98,16 +98,16 @@
                 uptime: 95 + Math.random() * 5,
                 responseTime: 100 + Math.random() * 100
             })),
-            'github.com': Array.from({length: 31}, (_, i) => ({
-                date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-                uptime: 93 + Math.random() * 7,
-                responseTime: 150 + Math.random() * 100
-            })),
-            'kubernetes.io': Array.from({length: 31}, (_, i) => ({
-                date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-                uptime: 90 + Math.random() * 10,
-                responseTime: 200 + Math.random() * 100
-            }))
+            // 'github.com': Array.from({length: 31}, (_, i) => ({
+            //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+            //     uptime: 93 + Math.random() * 7,
+            //     responseTime: 150 + Math.random() * 100
+            // })),
+            // 'kubernetes.io': Array.from({length: 31}, (_, i) => ({
+            //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+            //     uptime: 90 + Math.random() * 10,
+            //     responseTime: 200 + Math.random() * 100
+            // }))
         };
 
         const urls = Object.keys(historicalData);
