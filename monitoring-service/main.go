@@ -3,18 +3,29 @@ package main
 import (
 	"fmt"
 	"log"
+	"monitoring/db"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
 )
 
 // Update error style with more prominent styling
 var errorStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#FF0000")).
 	Background(lipgloss.Color("#FFE5E5")).
+	Padding(0, 1).
+	MarginTop(1).
+	Bold(true)
+
+// Update success style with more obscure styling
+var successStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#008000")).
+	Background(lipgloss.Color("#D0FFD0")).
 	Padding(0, 1).
 	MarginTop(1).
 	Bold(true)
@@ -28,6 +39,7 @@ type model struct {
 	textInputFrequency textinput.Model
 	err                error
 	validationError    string
+	successMessage     string // Add this
 	url                string
 	frequency          int
 }
@@ -87,6 +99,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.frequency = freqValue
 				m.validationError = ""
+
+				err = myDB.CreateURL(m.url, m.frequency)
+				if err != nil {
+					m.validationError = "Error adding new URL"
+					m.successMessage = ""
+					return m, nil
+				}
+				m.successMessage = "URL successfully saved!"
+				m.validationError = ""
+
 				return m, tea.Quit
 			}
 		case tea.KeyCtrlC, tea.KeyEsc:
@@ -104,46 +126,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// Update View() function
 func (m model) View() string {
-	var errorMsg string
+	var messageBox string
 	if m.validationError != "" {
-		errorMsg = "\n" + errorStyle.Render(m.validationError)
+		messageBox = "\n" + errorStyle.Render(m.validationError)
+	} else if m.successMessage != "" {
+		messageBox = "\n" + successStyle.Render(m.successMessage)
 	}
 
 	return fmt.Sprintf(
 		"Enter URL and frequency to monitor\n\n%s%s\n\n%s\n\n%s",
 		m.textInputURL.View(),
-		errorMsg,
+		messageBox,
 		m.textInputFrequency.View(),
 		"(esc to quit)",
 	) + "\n"
 }
 
+var myDB *db.Mysql
+
 func main() {
-	host := "localhost"
-	user := "root"
-	password := "1111"
-	port := "3306"
-	database := "monitor-service"
-
-	myDB, err := NewMysql(host, user, password, port, database)
+	err := godotenv.Load()
 	if err != nil {
-		panic(err)
-	}
-	err = myDB.CreateURL("http://www.google.com", 1)
-	if err != nil {
-		panic(err)
+		log.Fatalf("Error loading .env file")
 	}
 
-	err = myDB.UpdateURLFrequency("http://www.google.com", 5)
-	if err != nil {
-		panic(err)
-	}
+	host := os.Getenv("DB_HOST")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	port := os.Getenv("DB_PORT")
+	database := os.Getenv("DB_NAME")
 
-	err = myDB.AddURLHealthCheck(1, 500, 200, 1)
-	if err != nil {
-		panic(err)
+	var dbErr error
+	myDB, dbErr = db.NewMysql(host, user, password, port, database)
+	if dbErr != nil {
+		panic(dbErr)
 	}
+	// err = myDB.CreateURL("http://www.google.com", 1)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// err = myDB.UpdateURLFrequency("http://www.google.com", 5)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// err = myDB.AddURLHealthCheck(1, 500, 200, 1)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	p := tea.NewProgram(initialModel())
 	if _, err := p.Run(); err != nil {

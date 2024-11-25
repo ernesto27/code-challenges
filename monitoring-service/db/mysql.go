@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"database/sql"
@@ -10,6 +10,12 @@ import (
 
 type Mysql struct {
 	DB *sql.DB
+}
+
+type URL struct {
+	ID        int
+	URL       string
+	Frequency int
 }
 
 func NewMysql(host, user, password, port, database string) (*Mysql, error) {
@@ -37,6 +43,27 @@ func (m *Mysql) CreateURL(url string, frequency int) error {
 	return nil
 }
 
+func (m *Mysql) GetURLs() ([]URL, error) {
+	rows, err := m.DB.Query("SELECT id, url, frequency FROM urls")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var urls []URL
+	for rows.Next() {
+		var url URL
+		err := rows.Scan(&url.ID, &url.URL, &url.Frequency)
+		if err != nil {
+			return nil, err
+		}
+
+		urls = append(urls, url)
+	}
+
+	return urls, nil
+}
+
 func (m *Mysql) UpdateURLFrequency(url string, frequency int) error {
 	_, err := m.DB.Exec("UPDATE urls SET frequency = ? WHERE url = ?", frequency, url)
 	if err != nil {
@@ -46,7 +73,7 @@ func (m *Mysql) UpdateURLFrequency(url string, frequency int) error {
 	return nil
 }
 
-func (m *Mysql) AddURLHealthCheck(urlID int, statusCode int, responseTime int, isAlive int) error {
+func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTime int, isAlive int) error {
 	_, err := m.DB.Exec("INSERT INTO url_health_checks (url_id, status_code, response_time_ms, is_alive) VALUES (?, ?, ?, ?)", urlID, statusCode, responseTime, isAlive)
 	if err != nil {
 		return err
