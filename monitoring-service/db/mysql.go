@@ -19,9 +19,9 @@ type URL struct {
 }
 
 type HistoricalData struct {
-	Date         string
-	ResponseTime float64
-	Uptime       float64
+	Date         string  `json:"date"`
+	ResponseTime float64 `json:"responseTime"`
+	Uptime       float64 `json:"uptime"`
 }
 
 func NewMysql(host, user, password, port, database string) (*Mysql, error) {
