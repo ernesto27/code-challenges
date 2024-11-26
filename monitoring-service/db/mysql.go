@@ -18,6 +18,12 @@ type URL struct {
 	Frequency int
 }
 
+type HistoricalData struct {
+	Date         string
+	ResponseTime float64
+	Uptime       float64
+}
+
 func NewMysql(host, user, password, port, database string) (*Mysql, error) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", user, password, host, port, database))
 	if err != nil {
@@ -80,6 +86,43 @@ func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTime int
 	}
 
 	return nil
+}
+
+func (m *Mysql) GetHistoricDataByURLID(urlID int) ([]HistoricalData, error) {
+	rows, err := m.DB.Query(
+		`SELECT 
+			DATE(created_at) AS date,
+			AVG(response_time_ms) AS responseTime,
+			(SUM(is_alive) / COUNT(*)) * 100 AS uptime
+		FROM 
+			url_health_checks
+		WHERE 
+			url_id = ?
+		GROUP BY 
+			DATE(created_at)
+		ORDER BY 
+			DATE(created_at) 
+	`, urlID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var data []HistoricalData
+	for rows.Next() {
+		var d HistoricalData
+		err := rows.Scan(&d.Date, &d.ResponseTime, &d.Uptime)
+		if err != nil {
+			return nil, err
+		}
+
+		data = append(data, d)
+	}
+
+	return data, nil
+
 }
 
 func (m *Mysql) Close() {

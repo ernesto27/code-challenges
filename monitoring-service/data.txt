@@ -1,6 +1,6 @@
 docker run -d \
-  --name mysql-db \
-  -p 3306:3306 \
+  --name mysql-monitor-service \
+  -p 3388:3306 \
   -e MYSQL_ROOT_PASSWORD=1111 \
   -e MYSQL_DATABASE=monitor-service \
   -e MYSQL_USER=user \
@@ -64,3 +64,38 @@ CREATE TABLE url_health_checks (
     INDEX idx_status_code (status_code),
     INDEX idx_is_alive (is_alive)
 )
+
+
+INSERT INTO url_health_checks (url_id, created_at, status_code, response_time_ms, is_alive, error_message) VALUES
+(1, '2023-10-01 00:00:00', 200, 150, true, NULL),
+(1, '2023-10-01 01:00:00', 200, 160, true, NULL),
+(1, '2023-10-01 02:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-01 03:00:00', 200, 140, true, NULL),
+(1, '2023-10-01 04:00:00', 404, 100, false, 'Not Found'),
+(1, '2023-10-01 05:00:00', 200, 150, true, NULL),
+(1, '2023-10-01 06:00:00', 200, 160, true, NULL),
+(1, '2023-10-01 07:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-01 08:00:00', 200, 140, true, NULL),
+(1, '2023-10-01 09:00:00', 404, 100, false, 'Not Found'),
+
+(1, '2023-10-02 00:00:00', 200, 150, true, NULL),
+(1, '2023-10-02 01:00:00', 200, 160, true, NULL),
+(1, '2023-10-02 02:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-02 03:00:00', 200, 140, true, NULL),
+(1, '2023-10-02 04:00:00', 404, 100, false, 'Not Found'),
+(1, '2023-10-02 05:00:00', 200, 150, true, NULL),
+(1, '2023-10-02 06:00:00', 200, 160, true, NULL),
+(1, '2023-10-02 07:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-02 08:00:00', 200, 140, true, NULL),
+(1, '2023-10-02 09:00:00', 404, 100, false, 'Not Found'),
+
+(1, '2023-10-03 00:00:00', 200, 150, true, NULL),
+(1, '2023-10-03 01:00:00', 200, 160, true, NULL),
+(1, '2023-10-03 02:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-03 03:00:00', 200, 140, true, NULL),
+(1, '2023-10-03 04:00:00', 404, 100, false, 'Not Found'),
+(1, '2023-10-03 05:00:00', 200, 150, true, NULL),
+(1, '2023-10-03 06:00:00', 200, 160, true, NULL),
+(1, '2023-10-03 07:00:00', 500, 300, false, 'Internal Server Error'),
+(1, '2023-10-03 08:00:00', 200, 140, true, NULL),
+(1, '2023-10-03 09:00:00', 404, 100, false, 'Not Found');
