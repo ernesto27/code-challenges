@@ -93,7 +93,7 @@
     <script>
         // Sample historical data (simulating database records)
         const historicalData = {
-            'google.com': Array.from({length: 3}, (_, i) => ({
+            'google.com': Array.from({length: 30}, (_, i) => ({
                 date: `2024-01-${String(i + 1).padStart(2, '0')}`,
                 uptime: 95 + Math.random() * 5,
                 responseTime: 100 + Math.random() * 100
@@ -110,12 +110,12 @@
             // }))
         };
 
-        const urls = Object.keys(historicalData);
+        
         let uptimeChart = null;
         let responseTimeChart = null;
 
         // Initialize URL checkboxes
-        function initializeURLSelect() {
+        function initializeURLSelect(urls) {
             const urlSelect = document.getElementById('urlSelect');
             urls.forEach(url => {
                 const label = document.createElement('label');
@@ -137,7 +137,7 @@
             return color;
         }
 
-        function updateCharts() {
+        function updateCharts(urls, historicalData) {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const selectedUrls = Array.from(document.querySelectorAll('.url-checkbox input:checked'))
@@ -163,6 +163,8 @@
                 uptimeChart.destroy();
             }
 
+            console.log("UPTIME DATA ", uptimeData)
+
             uptimeChart = new Chart(document.getElementById('uptimeChart'), {
                 type: 'line',
                 data: uptimeData,
@@ -170,7 +172,7 @@
                     responsive: true,
                     scales: {
                         y: {
-                            min: 80,
+                            min: 50,
                             max: 100,
                             title: {
                                 display: true,
@@ -232,9 +234,20 @@
         }
 
         // Initialize the dashboard
-        function initDashboard() {
-            initializeURLSelect();
-            updateCharts();
+        async function initDashboard() {
+            data = await getHistoricalData(1)
+            
+            const dataFetch = {}
+            dataFetch[data.name] = data.data
+
+            console.log(data)
+            console.log(historicalData)
+            console.log(dataFetch)
+
+            const urls = Object.keys(dataFetch);
+
+            initializeURLSelect(urls);
+            updateCharts(urls, dataFetch);
 
             // Add event listeners
             document.getElementById('startDate').addEventListener('change', updateCharts);
@@ -263,14 +276,14 @@
         }
 
         // Usage example:
-        getHistoricalData(1)
-            .then(data => {
-                console.log('Historical data:', data);
-                // Process the data here
-            })
-            .catch(error => {
-                console.error('Failed to get historical data:', error);
-            });
+        // getHistoricalData(1)
+        //     .then(data => {
+        //         console.log('Historical data:', data);
+        //         // Process the data here
+        //     })
+        //     .catch(error => {
+        //         console.error('Failed to get historical data:', error);
+        //     });
     </script>
 </body>
 </html>

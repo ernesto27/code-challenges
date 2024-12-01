@@ -88,7 +88,22 @@ func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTime int
 	return nil
 }
 
-func (m *Mysql) GetHistoricDataByURLID(urlID int) ([]HistoricalData, error) {
+type ResponseData struct {
+	Name string           `json:"name"`
+	Data []HistoricalData `json:"data"`
+}
+
+func (m *Mysql) GetHistoricDataByURLID(urlID int) (ResponseData, error) {
+	responseData := ResponseData{}
+
+	row := m.DB.QueryRow("SELECT url FROM urls WHERE id = ?", urlID)
+	var url string
+
+	err := row.Scan(&url)
+	if err != nil {
+		return responseData, err
+	}
+
 	rows, err := m.DB.Query(
 		`SELECT 
 			DATE(created_at) AS date,
@@ -105,7 +120,7 @@ func (m *Mysql) GetHistoricDataByURLID(urlID int) ([]HistoricalData, error) {
 	`, urlID)
 
 	if err != nil {
-		return nil, err
+		return responseData, err
 	}
 
 	defer rows.Close()
@@ -115,13 +130,16 @@ func (m *Mysql) GetHistoricDataByURLID(urlID int) ([]HistoricalData, error) {
 		var d HistoricalData
 		err := rows.Scan(&d.Date, &d.ResponseTime, &d.Uptime)
 		if err != nil {
-			return nil, err
+			return responseData, err
 		}
 
 		data = append(data, d)
 	}
 
-	return data, nil
+	responseData.Name = url
+	responseData.Data = data
+
+	return responseData, nil
 
 }
 
