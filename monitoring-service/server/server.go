@@ -14,7 +14,7 @@ import (
 
 func main() {
 
-	err := godotenv.Load()
+	err := godotenv.Load("../.env")
 	if err != nil {
 		log.Fatalf("Error loading .env file")
 	}
@@ -31,7 +31,7 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "public/chart.html")
+		http.ServeFile(w, r, "../public/chart.html")
 	})
 
 	http.HandleFunc("/historical-data", func(w http.ResponseWriter, r *http.Request) {
@@ -42,18 +42,38 @@ func main() {
 			return
 		}
 
+		startDate := r.URL.Query().Get("start")
+		if startDate == "" {
+			http.Error(w, "start parameter is required", http.StatusBadRequest)
+			return
+		}
+		endDate := r.URL.Query().Get("end")
+		if endDate == "" {
+			http.Error(w, "end parameter is required", http.StatusBadRequest)
+			return
+		}
+
 		idVal, err := strconv.Atoi(id)
 		if err != nil {
 			http.Error(w, "id parameter must be an integer", http.StatusBadRequest)
 			return
 		}
 
-		data, err := myDB.GetHistoricDataByURLID(idVal)
+		data, err := myDB.GetHistoricDataByURLID(idVal, startDate, endDate)
 		if err != nil {
 			fmt.Println(err)
 			http.Error(w, "error getting historical data", http.StatusInternalServerError)
 			return
 		}
+
+		urls, err := myDB.GetURLs()
+		if err != nil {
+			fmt.Println(err)
+			http.Error(w, "error getting urls", http.StatusInternalServerError)
+			return
+		}
+
+		data.URLs = urls
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(data)

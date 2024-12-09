@@ -13,12 +13,13 @@ type Mysql struct {
 }
 
 type URL struct {
-	ID        int
-	URL       string
-	Frequency int
+	ID        int    `json:"id"`
+	URL       string `json:"url"`
+	Frequency int    `json:"frequency"`
 }
 
 type HistoricalData struct {
+	Name         string  `json:"name"`
 	Date         string  `json:"date"`
 	ResponseTime float64 `json:"responseTime"`
 	Uptime       float64 `json:"uptime"`
@@ -88,36 +89,63 @@ func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTime int
 	return nil
 }
 
+// Update struct
 type ResponseData struct {
-	Name string           `json:"name"`
-	Data []HistoricalData `json:"data"`
+	Data map[string][]HistoricalData `json:"data"`
+	URLs []URL                       `json:"urls"`
 }
 
-func (m *Mysql) GetHistoricDataByURLID(urlID int) (ResponseData, error) {
-	responseData := ResponseData{}
-
-	row := m.DB.QueryRow("SELECT url FROM urls WHERE id = ?", urlID)
-	var url string
-
-	err := row.Scan(&url)
-	if err != nil {
-		return responseData, err
+func (m *Mysql) GetHistoricDataByURLID(urlID int, startDate string, endDate string) (ResponseData, error) {
+	responseData := ResponseData{
+		Data: make(map[string][]HistoricalData),
 	}
 
-	rows, err := m.DB.Query(
-		`SELECT 
-			DATE(created_at) AS date,
-			AVG(response_time_ms) AS responseTime,
-			(SUM(is_alive) / COUNT(*)) * 100 AS uptime
-		FROM 
-			url_health_checks
-		WHERE 
-			url_id = ?
-		GROUP BY 
-			DATE(created_at)
-		ORDER BY 
-			DATE(created_at) 
-	`, urlID)
+	var query string
+	var rows *sql.Rows
+	var err error
+
+	if urlID != -1 {
+		query = `
+			SELECT
+				u.url as name,
+				DATE(h.created_at) AS date,
+				AVG(response_time_ms) AS responseTime,
+				(SUM(is_alive) / COUNT(*)) * 100 AS uptime
+			FROM
+				url_health_checks h
+				JOIN urls u ON u.id = h.url_id
+			WHERE
+				url_id = ?
+				AND DATE(h.created_at) >= DATE(?)
+				AND DATE(h.created_at) <= DATE(?)
+			GROUP BY
+				DATE(h.created_at)
+			ORDER BY
+				DATE(h.created_at)`
+		rows, err = m.DB.Query(query, urlID, startDate, endDate)
+	} else {
+		query = `
+		SELECT
+			u.url as name,
+			DATE(h.created_at) AS date,
+			AVG(h.response_time_ms) AS responseTime,
+			(SUM(h.is_alive) / COUNT(*)) * 100 AS uptime
+		FROM
+			urls u
+			JOIN url_health_checks h ON u.id = h.url_id
+		WHERE
+			DATE(h.created_at) >= DATE(?)
+			AND DATE(h.created_at) <= DATE(?)
+		GROUP BY
+			u.url,
+			DATE(h.created_at)
+		ORDER BY
+			u.url,
+			DATE(h.created_at)`
+		rows, err = m.DB.Query(query, startDate, endDate)
+	}
+
+	fmt.Println(query)
 
 	if err != nil {
 		return responseData, err
@@ -125,22 +153,20 @@ func (m *Mysql) GetHistoricDataByURLID(urlID int) (ResponseData, error) {
 
 	defer rows.Close()
 
-	var data []HistoricalData
+	// Process rows into grouped data
+	urlNames := make(map[string]bool)
 	for rows.Next() {
 		var d HistoricalData
-		err := rows.Scan(&d.Date, &d.ResponseTime, &d.Uptime)
+		err := rows.Scan(&d.Name, &d.Date, &d.ResponseTime, &d.Uptime)
 		if err != nil {
 			return responseData, err
 		}
 
-		data = append(data, d)
+		responseData.Data[d.Name] = append(responseData.Data[d.Name], d)
+		urlNames[d.Name] = true
 	}
 
-	responseData.Name = url
-	responseData.Data = data
-
 	return responseData, nil
-
 }
 
 func (m *Mysql) Close() {

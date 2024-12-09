@@ -48,7 +48,8 @@
         }
         .date-controls {
             display: flex;
-            gap: 20px;
+            align-items: flex-end;
+            gap: 15px;
             margin-bottom: 20px;
         }
         .date-group {
@@ -58,6 +59,19 @@
         label {
             margin-bottom: 5px;
             font-weight: bold;
+        }
+        .apply-button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            height: fit-content;
+        }
+        .apply-button:hover {
+            background-color: #45a049;
         }
     </style>
 </head>
@@ -75,6 +89,7 @@
                     <label for="endDate">End Date</label>
                     <input type="date" id="endDate" value="2024-01-31">
                 </div>
+                <button id="applyDates" class="apply-button">Apply</button>
             </div>
 
             <label>Select URLs to Monitor:</label>
@@ -92,39 +107,90 @@
 
     <script>
         // Sample historical data (simulating database records)
-        const historicalData = {
-            'google.com': Array.from({length: 30}, (_, i) => ({
-                date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-                uptime: 95 + Math.random() * 5,
-                responseTime: 100 + Math.random() * 100
-            })),
-            // 'github.com': Array.from({length: 31}, (_, i) => ({
-            //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-            //     uptime: 93 + Math.random() * 7,
-            //     responseTime: 150 + Math.random() * 100
-            // })),
-            // 'kubernetes.io': Array.from({length: 31}, (_, i) => ({
-            //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-            //     uptime: 90 + Math.random() * 10,
-            //     responseTime: 200 + Math.random() * 100
-            // }))
+        // const historicalData = {
+        //     'google.com': Array.from({length: 30}, (_, i) => ({
+        //         date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+        //         uptime: 95 + Math.random() * 5,
+        //         responseTime: 100 + Math.random() * 100
+        //     })),
+        //     // 'github.com': Array.from({length: 31}, (_, i) => ({
+        //     //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+        //     //     uptime: 93 + Math.random() * 7,
+        //     //     responseTime: 150 + Math.random() * 100
+        //     // })),
+        //     // 'kubernetes.io': Array.from({length: 31}, (_, i) => ({
+        //     //     date: `2024-01-${String(i + 1).padStart(2, '0')}`,
+        //     //     uptime: 90 + Math.random() * 10,
+        //     //     responseTime: 200 + Math.random() * 100
+        //     // }))
+        // };
+
+        const chartColors = {
+            colors: [
+                '#2E86C1', // Blue
+                '#E74C3C', // Red
+                '#2ECC71', // Green
+                '#F39C12', // Orange
+                '#8E44AD', // Purple
+                '#16A085', // Teal
+                '#D35400', // Dark Orange
+                '#7F8C8D', // Gray
+                '#27AE60', // Emerald
+                '#C0392B'  // Dark Red
+            ],
+            getColor: function(index) {
+                return this.colors[index % this.colors.length];
+            }
         };
 
-        
         let uptimeChart = null;
         let responseTimeChart = null;
 
         // Initialize URL checkboxes
-        function initializeURLSelect(urls) {
+        function initializeURLSelect() {
             const urlSelect = document.getElementById('urlSelect');
             urls.forEach(url => {
                 const label = document.createElement('label');
                 label.className = 'url-checkbox';
                 label.innerHTML = `
-                    <input type="checkbox" value="${url}" checked>
-                    ${url}
+                    <input type="checkbox" data-url="${url.url}" value="${url.id}" checked>
+                    ${url.url}
                 `;
                 urlSelect.appendChild(label);
+
+                // Add event listener for change on input checkbox
+                label.querySelector('input').addEventListener('change', () => {
+                        let selectedUrls = urls
+                        console.log(event.target.checked)
+    
+                        let urlId = event.target.value;
+                        urlId = parseInt(urlId)
+                        let newHistoricalData = Object.assign({}, historicalData)
+                        console.log("new historical data", newHistoricalData)
+                        
+                        if (!event.target.checked) {
+                            urls = urls.map(url => url.id === urlId ? { ...url, checked: false } : url);
+                            console.log("removed")
+                            console.log("urls ", urls)
+                            console.log(event.target.dataset.url)
+                            // delete newHistoricalData[event.target.dataset.url]
+
+                            // loop over url and remove value from historical data if checked is false
+                        } else {
+                            urls = urls.map(url => url.id === urlId ? { ...url, checked: true } : url);
+                        }
+                        
+                        for (const [key, value] of Object.entries(urls)) {
+                            if (value.checked === false) {
+                                console.log(value)
+                                delete newHistoricalData[value.url]
+                            }
+                        }
+                        selectedUrls = urls.filter(url => url.checked);
+                        console.log("new historical data", newHistoricalData)
+                        updateCharts(selectedUrls, newHistoricalData);
+
+                });
             });
         }
 
@@ -137,69 +203,91 @@
             return color;
         }
 
-        function updateCharts(urls, historicalData) {
+        function updateCharts(urls, data) {
+            if (Object.keys(data).length === 0) {
+                const uptimeChart = Chart.getChart("uptimeChart");
+                const responseTimeChart = Chart.getChart("responseTimeChart");
+                
+                if (uptimeChart) {
+                    uptimeChart.data.labels = [];
+                    uptimeChart.data.datasets = [];
+                    uptimeChart.update();
+                }
+                
+                if (responseTimeChart) {
+                    responseTimeChart.data.labels = [];
+                    responseTimeChart.data.datasets = [];
+                    responseTimeChart.update();
+                }
+                return;
+            }
+
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            const selectedUrls = Array.from(document.querySelectorAll('.url-checkbox input:checked'))
-                .map(checkbox => checkbox.value);
+
+            // Get all dates from first URL for labels
+            const firstUrl = Object.keys(data)[0];
+            const labels = data[firstUrl]
+                .filter(record => record.date >= startDate && record.date <= endDate)
+                .map(record => record.date);
+
+            // Create datasets for each URL
+            const datasets = Object.keys(data).map((url, index) => ({
+                label: url,
+                data: data[url]
+                    .filter(record => record.date >= startDate && record.date <= endDate)
+                    .map(record => record.uptime),
+                borderColor: chartColors.getColor(index),
+                backgroundColor: chartColors.getColor(index),
+                tension: 0.1,
+                fill: false
+            }));
 
             // Update Uptime Chart
             const uptimeData = {
-                labels: historicalData[urls[0]]
-                    .filter(record => record.date >= startDate && record.date <= endDate)
-                    .map(record => record.date),
-                datasets: selectedUrls.map(url => ({
-                    label: url,
-                    data: historicalData[url]
-                        .filter(record => record.date >= startDate && record.date <= endDate)
-                        .map(record => record.uptime),
-                    borderColor: getRandomColor(),
-                    tension: 0.1,
-                    fill: false
-                }))
+                labels: labels,
+                datasets: datasets
             };
 
             if (uptimeChart) {
                 uptimeChart.destroy();
             }
 
-            console.log("UPTIME DATA ", uptimeData)
-
-            uptimeChart = new Chart(document.getElementById('uptimeChart'), {
+            const uptimeCtx = document.getElementById('uptimeChart').getContext('2d');
+            uptimeChart = new Chart(uptimeCtx, {
                 type: 'line',
                 data: uptimeData,
                 options: {
                     responsive: true,
                     scales: {
                         y: {
-                            min: 50,
+                            beginAtZero: true,
                             max: 100,
                             title: {
                                 display: true,
                                 text: 'Uptime %'
                             }
-                        }
-                    },
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'URL Uptime History'
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
                         }
                     }
                 }
             });
 
-            // Update Response Time Chart
+            // Update Response Time Chart with same pattern
             const responseTimeData = {
-                labels: historicalData[urls[0]]
-                    .filter(record => record.date >= startDate && record.date <= endDate)
-                    .map(record => record.date),
-                datasets: selectedUrls.map(url => ({
+                labels: labels,
+                datasets: Object.keys(data).map((url, index) => ({
                     label: url,
-                    data: historicalData[url]
+                    data: data[url]
                         .filter(record => record.date >= startDate && record.date <= endDate)
                         .map(record => record.responseTime),
-                    borderColor: getRandomColor(),
+                    borderColor: chartColors.getColor(index),
+                    backgroundColor: chartColors.getColor(index),
                     tension: 0.1,
                     fill: false
                 }))
@@ -209,7 +297,8 @@
                 responseTimeChart.destroy();
             }
 
-            responseTimeChart = new Chart(document.getElementById('responseTimeChart'), {
+            const responseCtx = document.getElementById('responseTimeChart').getContext('2d');
+            responseTimeChart = new Chart(responseCtx, {
                 type: 'line',
                 data: responseTimeData,
                 options: {
@@ -221,47 +310,50 @@
                                 display: true,
                                 text: 'Response Time (ms)'
                             }
-                        }
-                    },
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'URL Response Time History'
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
                         }
                     }
                 }
             });
         }
 
+        // Store data globally
+        let historicalData = {};
+        let urls = {}
+
         // Initialize the dashboard
         async function initDashboard() {
-            data = await getHistoricalData(1)
+            const date = new Date();
+            const month = date.getMonth() + 1;
             
-            const dataFetch = {}
-            dataFetch[data.name] = data.data
+            const startDate = `${date.getFullYear()}-${month}-01`;
+            const endDate = `${date.getFullYear()}-${month}-31`;
 
-            console.log(data)
-            console.log(historicalData)
-            console.log(dataFetch)
+            data = await getHistoricalData(-1, startDate, endDate);
+        
+            historicalData = data.data;
+            urls = data.urls.map(url => ({ ...url, checked: true }));
 
-            const urls = Object.keys(dataFetch);
 
-            initializeURLSelect(urls);
-            updateCharts(urls, dataFetch);
+            initializeURLSelect();
+            updateCharts(urls, historicalData);
 
             // Add event listeners
             document.getElementById('startDate').addEventListener('change', updateCharts);
             document.getElementById('endDate').addEventListener('change', updateCharts);
-            document.querySelectorAll('.url-checkbox input').forEach(checkbox => {
-                checkbox.addEventListener('change', updateCharts);
-            });
+
         }
 
         document.addEventListener('DOMContentLoaded', initDashboard);
 
-        async function getHistoricalData(urlId) {
+        async function getHistoricalData(urlId, startDate, endDate) {
             try {
-                const response = await fetch(`http://localhost:8080/historical-data?id=${urlId}`);
+                const response = await fetch(`http://localhost:8080/historical-data?id=${urlId}&start=${startDate}&end=${endDate}`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -275,15 +367,58 @@
             }
         }
 
-        // Usage example:
-        // getHistoricalData(1)
-        //     .then(data => {
-        //         console.log('Historical data:', data);
-        //         // Process the data here
-        //     })
-        //     .catch(error => {
-        //         console.error('Failed to get historical data:', error);
-        //     });
+
+        document.getElementById('applyDates').addEventListener('click', async function() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+
+            // Get selected URLs
+            const selectedUrls = Array.from(document.querySelectorAll('.url-checkbox input:checked'))
+                .map(checkbox => checkbox.value);
+
+            if (selectedUrls.length === 0) {
+                alert('Please select at least one URL');
+                return;
+            }
+
+            try {
+
+                const data = await getHistoricalData(-1, startDate, endDate);
+                
+                historicalData = data.data;
+                updateCharts(urls, historicalData);
+                
+            } catch (error) {
+                console.error('Error updating charts:', error);
+                alert('Failed to update charts. Please try again.');
+
+                const uptimeChart = Chart.getChart("uptimeChart");
+                const responseTimeChart = Chart.getChart("responseTimeChart");
+                
+                if (uptimeChart) {
+                    uptimeChart.data.labels = [];
+                    uptimeChart.data.datasets = [];
+                    uptimeChart.update();
+                }
+                
+                if (responseTimeChart) {
+                    responseTimeChart.data.labels = [];
+                    responseTimeChart.data.datasets = [];
+                    responseTimeChart.update();
+                }
+            }
+        });
+
+        document.querySelectorAll('.url-checkbox input').forEach(checkbox => {
+
+        });
+
+        
     </script>
 </body>
 </html>
