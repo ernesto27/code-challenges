@@ -30,6 +30,9 @@ func main() {
 		panic(dbErr)
 	}
 
+	checkURLs(myDB)
+
+	os.Exit(1)
 	// ticker := time.NewTicker(1 * time.Minute)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -74,7 +77,9 @@ func checkURLs(myDB *db.Mysql) {
 				statusCode = resp.StatusCode
 			}
 
-			err = myDB.CreateURLHealthCheck(url.ID, statusCode, int(duration.Milliseconds()), isAlive)
+			ttbf, whole := getTTFBWholeResponse(url.URL)
+
+			err = myDB.CreateURLHealthCheck(url.ID, statusCode, int(duration.Milliseconds()), ttbf, whole, isAlive)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -101,4 +106,49 @@ func sendHEADRequest(url string) (*http.Response, time.Duration, error) {
 	duration := time.Since(start)
 
 	return resp, duration, nil
+}
+
+func getTTFBWholeResponse(url string) (int, int) {
+	start := time.Now()
+
+	transport := &customTransport{Transport: http.DefaultTransport}
+	client := &http.Client{Transport: transport}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Println("Error creating request:", err)
+		return 0, 0
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Error making request:", err)
+		return 0, 0
+	}
+	defer resp.Body.Close()
+
+	end := time.Now()
+
+	totalResponseTime := end.Sub(start)
+	fmt.Printf("TTFB: %v\n", transport.TTFB)
+	fmt.Printf("TTFB (milliseconds): %d\n", int(transport.TTFB.Milliseconds()))
+	fmt.Printf("Total Response Time: %v\n", totalResponseTime)
+	fmt.Printf("Total Response Time (milliseconds): %d\n", int(totalResponseTime.Milliseconds()))
+
+	return int(transport.TTFB.Milliseconds()), int(totalResponseTime.Milliseconds())
+}
+
+type customTransport struct {
+	Transport http.RoundTripper
+	TTFB      time.Duration
+}
+
+func (c *customTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	startTTFB := time.Now()
+	resp, err := c.Transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	c.TTFB = time.Since(startTTFB)
+	return resp, nil
 }

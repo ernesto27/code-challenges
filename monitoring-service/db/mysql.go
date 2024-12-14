@@ -80,8 +80,12 @@ func (m *Mysql) UpdateURLFrequency(url string, frequency int) error {
 	return nil
 }
 
-func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTime int, isAlive int) error {
-	_, err := m.DB.Exec("INSERT INTO url_health_checks (url_id, status_code, response_time_ms, is_alive) VALUES (?, ?, ?, ?)", urlID, statusCode, responseTime, isAlive)
+func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTimeHead int, responseTimeTTFB int, responseTimeGet int, isAlive int) error {
+	_, err := m.DB.Exec(`
+		INSERT INTO url_health_checks 
+			(url_id, status_code, response_time_ms_head, response_time_ms_ttfb, response_time_ms_get, is_alive) 
+			VALUES (?, ?, ?, ?, ?, ?)`,
+		urlID, statusCode, responseTimeHead, responseTimeTTFB, responseTimeGet, isAlive)
 	if err != nil {
 		return err
 	}
