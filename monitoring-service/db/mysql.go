@@ -13,9 +13,10 @@ type Mysql struct {
 }
 
 type URL struct {
-	ID        int    `json:"id"`
-	URL       string `json:"url"`
-	Frequency int    `json:"frequency"`
+	ID               int    `json:"id"`
+	URL              string `json:"url"`
+	Frequency        int    `json:"frequency"`
+	CurrentFrequency int    `json:"currentFrequency"`
 }
 
 type HistoricalData struct {

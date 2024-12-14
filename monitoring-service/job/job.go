@@ -13,6 +13,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
+var mu sync.Mutex
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -30,9 +32,18 @@ func main() {
 		panic(dbErr)
 	}
 
-	checkURLs(myDB)
+	var urlsMap = make(map[int]db.URL)
+	urls, err := myDB.GetURLs()
+	if err != nil {
+		panic(err)
+	}
 
-	os.Exit(1)
+	for _, url := range urls {
+		url.CurrentFrequency = 0
+		urlsMap[url.ID] = url
+	}
+
+	// os.Exit(1)
 	// ticker := time.NewTicker(1 * time.Minute)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -43,7 +54,7 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			checkURLs(myDB)
+			checkURLs(urlsMap, myDB)
 		case <-quit:
 			fmt.Println("Shutting down")
 			return
@@ -52,36 +63,42 @@ func main() {
 
 }
 
-func checkURLs(myDB *db.Mysql) {
-	urls, err := myDB.GetURLs()
-	if err != nil {
-		panic(err)
-	}
-
+func checkURLs(urls map[int]db.URL, myDB *db.Mysql) {
 	var wg sync.WaitGroup
 	for _, url := range urls {
 		wg.Add(1)
 
 		go func(url db.URL) {
-			fmt.Println("Checking URL: ", url.URL)
 			defer wg.Done()
-			resp, duration, err := sendHEADRequest(url.URL)
-			isAlive := 1
+			if url.CurrentFrequency == url.Frequency {
+				fmt.Println("Checking URL: ", url.URL)
+				resp, duration, err := sendHEADRequest(url.URL)
+				isAlive := 1
 
-			var statusCode int
-			if err != nil {
-				fmt.Println(err)
-				statusCode = http.StatusBadRequest
-				isAlive = 0
+				var statusCode int
+				if err != nil {
+					fmt.Println(err)
+					statusCode = http.StatusBadRequest
+					isAlive = 0
+				} else {
+					statusCode = resp.StatusCode
+				}
+
+				ttbf, whole := getTTFBWholeResponse(url.URL)
+
+				err = myDB.CreateURLHealthCheck(url.ID, statusCode, int(duration.Milliseconds()), ttbf, whole, isAlive)
+				if err != nil {
+					fmt.Println(err)
+				}
+				mu.Lock()
+				url.CurrentFrequency = 0
+				urls[url.ID] = url
+				mu.Unlock()
 			} else {
-				statusCode = resp.StatusCode
-			}
-
-			ttbf, whole := getTTFBWholeResponse(url.URL)
-
-			err = myDB.CreateURLHealthCheck(url.ID, statusCode, int(duration.Milliseconds()), ttbf, whole, isAlive)
-			if err != nil {
-				fmt.Println(err)
+				mu.Lock()
+				url.CurrentFrequency++
+				urls[url.ID] = url
+				mu.Unlock()
 			}
 
 		}(url)
