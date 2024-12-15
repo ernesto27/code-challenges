@@ -90,6 +90,15 @@ func checkURLs(urls map[int]db.URL, myDB *db.Mysql) map[int]db.URL {
 					fmt.Println(err)
 					statusCode = http.StatusBadRequest
 					isAlive = 0
+					url.CurrentAttempsFails++
+					if url.CurrentAttempsFails == url.AttempsFails {
+						fmt.Println("Send alert on URL ", url.URL)
+						err := myDB.CreateNotifiction(url.ID, "URL "+url.URL+" is down")
+						if err != nil {
+							fmt.Println(err)
+						}
+						url.CurrentAttempsFails = 0
+					}
 				} else {
 					statusCode = resp.StatusCode
 				}

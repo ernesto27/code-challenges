@@ -13,10 +13,12 @@ type Mysql struct {
 }
 
 type URL struct {
-	ID               int    `json:"id"`
-	URL              string `json:"url"`
-	Frequency        int    `json:"frequency"`
-	CurrentFrequency int    `json:"currentFrequency"`
+	ID                  int    `json:"id"`
+	URL                 string `json:"url"`
+	Frequency           int    `json:"frequency"`
+	CurrentFrequency    int    `json:"currentFrequency"`
+	AttempsFails        int    `json:"attempsFails"`
+	CurrentAttempsFails int    `json:"currentAttempsFail"`
 }
 
 type HistoricalData struct {
@@ -24,6 +26,13 @@ type HistoricalData struct {
 	Date         string  `json:"date"`
 	ResponseTime float64 `json:"responseTime"`
 	Uptime       float64 `json:"uptime"`
+}
+
+type Notification struct {
+	ID      int
+	Message string
+	Sent    bool
+	Email   string
 }
 
 func NewMysql(host, user, password, port, database string) (*Mysql, error) {
@@ -52,7 +61,7 @@ func (m *Mysql) CreateURL(url string, frequency int) error {
 }
 
 func (m *Mysql) GetURLs() ([]URL, error) {
-	rows, err := m.DB.Query("SELECT id, url, frequency FROM urls")
+	rows, err := m.DB.Query("SELECT id, url, frequency, attemps_fails FROM urls")
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +70,7 @@ func (m *Mysql) GetURLs() ([]URL, error) {
 	var urls []URL
 	for rows.Next() {
 		var url URL
-		err := rows.Scan(&url.ID, &url.URL, &url.Frequency)
+		err := rows.Scan(&url.ID, &url.URL, &url.Frequency, &url.AttempsFails)
 		if err != nil {
 			return nil, err
 		}
@@ -87,6 +96,49 @@ func (m *Mysql) CreateURLHealthCheck(urlID int, statusCode int, responseTimeHead
 			(url_id, status_code, response_time_ms_head, response_time_ms_ttfb, response_time_ms_get, is_alive) 
 			VALUES (?, ?, ?, ?, ?, ?)`,
 		urlID, statusCode, responseTimeHead, responseTimeTTFB, responseTimeGet, isAlive)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Mysql) CreateNotifiction(urlID int, message string) error {
+	_, err := m.DB.Exec("INSERT INTO notifications (url_id, message) VALUES (?, ?)", urlID, message)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Mysql) GetNotifications() ([]Notification, error) {
+	rows, err := m.DB.Query(`
+		SELECT n.id, n.message, n.sent, users.email
+		FROM notifications n
+		JOIN urls ON n.url_id = urls.id
+		JOIN users ON urls.user_id = users.id
+		WHERE n.sent = 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	notifications := []Notification{}
+	for rows.Next() {
+		var notification Notification
+		err := rows.Scan(&notification.ID, &notification.Message, &notification.Sent, &notification.Email)
+		if err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, notification)
+	}
+
+	return notifications, nil
+}
+
+func (m *Mysql) UpdateNotificationSent(id int) error {
+	_, err := m.DB.Exec("UPDATE notifications SET sent = 1 WHERE id = ?", id)
 	if err != nil {
 		return err
 	}

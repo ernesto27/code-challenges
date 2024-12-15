@@ -8,15 +8,33 @@ docker run -d \
   mysql:8.0
 
 
+CREATE TABLE users (
+    id INT AUTO_INCREMENT,
+    username VARCHAR(255) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_username (username)
+)
+
+INSERT INTO users (username, email, password) VALUES
+('admin', 'test', 'admin123)
+
+
 CREATE TABLE urls (
     id INT AUTO_INCREMENT,
     url VARCHAR(255) NOT NULL UNIQUE,
     frequency INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    attemps_fails INT DEFAULT 0,
+    user_id INT NOT NULL,
     PRIMARY KEY (id),
     INDEX idx_url (url),
-    INDEX idx_frequency (frequency)
+    INDEX idx_frequency (frequency),
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 
@@ -35,18 +53,17 @@ ORDER BY
     DATE(created_at);
 
 
-
-INSERT INTO urls (url, frequency) VALUES
-('https://www.google.com', 100),
-('https://github.com/trending', 50),
-('https://dev.mysql.com/doc', 25),
-('https://kubernetes.io/docs', 75),
-('https://docs.docker.com', 30),
-('https://www.youtube.com/tech', 85),
-('https://stackoverflow.com', 95),
-('https://aws.amazon.com/console', 40),
-('https://nodejs.org/docs', 20),
-('https://golang.org', 60);
+INSERT INTO urls (url, frequency, user_id) VALUES
+('https://www.google.com', 100, 1),
+('https://github.com/trending', 50, 1),
+('https://dev.mysql.com/doc', 25, 1),
+('https://kubernetes.io/docs', 75, 1),
+('https://docs.docker.com', 30, 1),
+('https://www.youtube.com/tech', 85, 1),
+('https://stackoverflow.com', 95, 1),
+('https://aws.amazon.com/console', 40, 1),
+('https://nodejs.org/docs', 20, 1),
+('https://golang.org', 60, 1);
 
 
 
@@ -65,6 +82,18 @@ CREATE TABLE url_health_checks (
     INDEX idx_created_at (created_at),
     INDEX idx_status_code (status_code),
     INDEX idx_is_alive (is_alive)
+)
+
+
+CREATE TABLE notifications (
+    id INT AUTO_INCREMENT,
+    url_id INT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message VARCHAR(255),
+    sent BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (id),
+    FOREIGN KEY (url_id) REFERENCES urls(id),
+    INDEX idx_created_at (created_at)
 )
 
 
