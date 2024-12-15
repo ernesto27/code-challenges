@@ -13,7 +13,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-var mu sync.Mutex
+var mu sync.RWMutex
 
 func main() {
 	err := godotenv.Load()
@@ -39,12 +39,9 @@ func main() {
 	}
 
 	for _, url := range urls {
-		url.CurrentFrequency = 0
 		urlsMap[url.ID] = url
 	}
 
-	// os.Exit(1)
-	// ticker := time.NewTicker(1 * time.Minute)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -54,7 +51,19 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			checkURLs(urlsMap, myDB)
+			mu.RLock()
+			localURLsMap := make(map[int]db.URL)
+			for k, v := range urlsMap {
+				localURLsMap[k] = v
+			}
+			mu.RUnlock()
+
+			updates := checkURLs(localURLsMap, myDB)
+			mu.Lock()
+			for id, url := range updates {
+				urlsMap[id] = url
+			}
+			mu.Unlock()
 		case <-quit:
 			fmt.Println("Shutting down")
 			return
@@ -63,15 +72,16 @@ func main() {
 
 }
 
-func checkURLs(urls map[int]db.URL, myDB *db.Mysql) {
+func checkURLs(urls map[int]db.URL, myDB *db.Mysql) map[int]db.URL {
+
 	var wg sync.WaitGroup
+	updates := make(map[int]db.URL)
+
 	for _, url := range urls {
 		wg.Add(1)
-
 		go func(url db.URL) {
 			defer wg.Done()
 			if url.CurrentFrequency == url.Frequency {
-				fmt.Println("Checking URL: ", url.URL)
 				resp, duration, err := sendHEADRequest(url.URL)
 				isAlive := 1
 
@@ -90,22 +100,20 @@ func checkURLs(urls map[int]db.URL, myDB *db.Mysql) {
 				if err != nil {
 					fmt.Println(err)
 				}
-				mu.Lock()
 				url.CurrentFrequency = 0
-				urls[url.ID] = url
-				mu.Unlock()
 			} else {
-				mu.Lock()
 				url.CurrentFrequency++
-				urls[url.ID] = url
-				mu.Unlock()
 			}
 
+			mu.Lock()
+			updates[url.ID] = url
+			mu.Unlock()
 		}(url)
 	}
 
 	wg.Wait()
 	fmt.Println("All URLs checked")
+	return updates
 }
 
 func sendHEADRequest(url string) (*http.Response, time.Duration, error) {
