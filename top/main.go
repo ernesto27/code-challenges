@@ -12,22 +12,44 @@ import (
 )
 
 type CPUStats struct {
-	user     uint64
-	nice     uint64
-	system   uint64
-	idle     uint64
-	iowait   uint64
-	irq      uint64
-	softirq  uint64
-	steal    uint64
+	user    uint64
+	nice    uint64
+	system  uint64
+	idle    uint64
+	iowait  uint64
+	irq     uint64
+	softirq uint64
+	steal   uint64
 }
 
 type MemoryInfo struct {
-	totalKB     uint64
-	availableKB uint64
+	totalKB       uint64
+	availableKB   uint64
+	freeKB        uint64
+	buffersKB     uint64
+	cachedKB      uint64
+	unevictableKB uint64
+	activeKB      uint64
+	swapCachedKB  uint64
+}
+
+type LoadAverage struct {
+	load1min  float64
+	load5min  float64
+	load15min float64
 }
 
 var prevCPUStats *CPUStats
+
+// clearScreenAndHideCursor clears the terminal screen and hides the cursor
+func clearScreenAndHideCursor() {
+	fmt.Print("\033[2J\033[H\033[?25l")
+}
+
+// showCursor shows the terminal cursor
+func showCursor() {
+	fmt.Print("\033[?25h")
+}
 
 func main() {
 	// Get the file descriptor for standard input
@@ -44,7 +66,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer term.Restore(fd, oldState)
+	defer func() {
+		showCursor()
+		term.Restore(fd, oldState)
+	}()
 
 	// Put the terminal into raw mode. This disables input echoing.
 	_, err = term.MakeRaw(fd)
@@ -52,8 +77,8 @@ func main() {
 		panic(err)
 	}
 
-	// Clear the terminal screen
-	fmt.Print("\033[2J\033[H")
+	// Clear the terminal screen and hide cursor
+	clearScreenAndHideCursor()
 
 	// Take two quick readings to calculate initial CPU usage
 	prevCPUStats, _ = readCPUStats()
@@ -83,6 +108,7 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
+			clearScreenAndHideCursor()
 			printSystemInfo()
 
 		case char := <-inputCh:
@@ -128,22 +154,34 @@ func readCPUStats() (*CPUStats, error) {
 	return stats, nil
 }
 
-func calculateCPUUsage(prev, curr *CPUStats) float64 {
+type CPUUsageBreakdown struct {
+	userPercent   float64
+	systemPercent float64
+	idlePercent   float64
+}
+
+func calculateCPUBreakdown(prev, curr *CPUStats) *CPUUsageBreakdown {
 	if prev == nil {
-		return 0.0
+		return &CPUUsageBreakdown{0.0, 0.0, 0.0}
 	}
 
 	prevTotal := prev.user + prev.nice + prev.system + prev.idle + prev.iowait + prev.irq + prev.softirq + prev.steal
 	currTotal := curr.user + curr.nice + curr.system + curr.idle + curr.iowait + curr.irq + curr.softirq + curr.steal
 
 	totalDiff := currTotal - prevTotal
-	idleDiff := curr.idle - prev.idle
-
 	if totalDiff == 0 {
-		return 0.0
+		return &CPUUsageBreakdown{0.0, 0.0, 0.0}
 	}
 
-	return (1.0 - float64(idleDiff)/float64(totalDiff)) * 100.0
+	userDiff := (curr.user + curr.nice) - (prev.user + prev.nice)
+	systemDiff := (curr.system + curr.irq + curr.softirq) - (prev.system + prev.irq + prev.softirq)
+	idleDiff := curr.idle - prev.idle
+
+	return &CPUUsageBreakdown{
+		userPercent:   (float64(userDiff) / float64(totalDiff)) * 100.0,
+		systemPercent: (float64(systemDiff) / float64(totalDiff)) * 100.0,
+		idlePercent:   (float64(idleDiff) / float64(totalDiff)) * 100.0,
+	}
 }
 
 func readMemoryInfo() (*MemoryInfo, error) {
@@ -155,6 +193,9 @@ func readMemoryInfo() (*MemoryInfo, error) {
 
 	memInfo := &MemoryInfo{}
 	scanner := bufio.NewScanner(file)
+
+	fieldsFound := 0
+	targetFields := 8 // Number of fields we want to collect
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -173,12 +214,32 @@ func readMemoryInfo() (*MemoryInfo, error) {
 		switch key {
 		case "MemTotal":
 			memInfo.totalKB = value
+			fieldsFound++
 		case "MemAvailable":
 			memInfo.availableKB = value
+			fieldsFound++
+		case "MemFree":
+			memInfo.freeKB = value
+			fieldsFound++
+		case "Buffers":
+			memInfo.buffersKB = value
+			fieldsFound++
+		case "Cached":
+			memInfo.cachedKB = value
+			fieldsFound++
+		case "Unevictable":
+			memInfo.unevictableKB = value
+			fieldsFound++
+		case "Active":
+			memInfo.activeKB = value
+			fieldsFound++
+		case "SwapCached":
+			memInfo.swapCachedKB = value
+			fieldsFound++
 		}
 
-		// Stop early if we have both values
-		if memInfo.totalKB > 0 && memInfo.availableKB > 0 {
+		// Stop early if we have all target values
+		if fieldsFound >= targetFields {
 			break
 		}
 	}
@@ -186,31 +247,103 @@ func readMemoryInfo() (*MemoryInfo, error) {
 	return memInfo, scanner.Err()
 }
 
+func readLoadAverage() (*LoadAverage, error) {
+	file, err := os.Open("/proc/loadavg")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() {
+		return nil, fmt.Errorf("failed to read loadavg line")
+	}
+
+	line := scanner.Text()
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return nil, fmt.Errorf("invalid loadavg format")
+	}
+
+	loadAvg := &LoadAverage{}
+
+	load1, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse 1min load average: %v", err)
+	}
+	loadAvg.load1min = load1
+
+	load5, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse 5min load average: %v", err)
+	}
+	loadAvg.load5min = load5
+
+	load15, err := strconv.ParseFloat(fields[2], 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse 15min load average: %v", err)
+	}
+	loadAvg.load15min = load15
+
+	return loadAvg, nil
+}
+
+func formatMemorySize(kb uint64) string {
+	if kb >= 1024*1024 {
+		gb := float64(kb) / (1024 * 1024)
+		return fmt.Sprintf("%.0fG", gb)
+	} else if kb >= 1024 {
+		mb := float64(kb) / 1024
+		return fmt.Sprintf("%.0fM", mb)
+	}
+	return fmt.Sprintf("%dK", kb)
+}
+
 func printSystemInfo() {
 	currentTime := time.Now()
 	cpuStats, err := readCPUStats()
 
-	var cpuUsage float64
+	var cpuBreakdown *CPUUsageBreakdown
 	if err == nil {
-		cpuUsage = calculateCPUUsage(prevCPUStats, cpuStats)
+		cpuBreakdown = calculateCPUBreakdown(prevCPUStats, cpuStats)
 		prevCPUStats = cpuStats
 	}
 
 	memInfo, memErr := readMemoryInfo()
 
-	var memUsage float64
-	if memErr == nil && memInfo.totalKB > 0 {
-		usedKB := memInfo.totalKB - memInfo.availableKB
-		memUsage = (float64(usedKB) / float64(memInfo.totalKB)) * 100.0
+	loadAvg, loadErr := readLoadAverage()
+
+	// Build the complete output string first
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Time: %s | ", currentTime.Format("15:04:05")))
+
+	if loadErr != nil {
+		output.WriteString("Load Avg: --, --, -- | ")
+	} else {
+		output.WriteString(fmt.Sprintf("Load Avg: %.2f, %.2f, %.2f | ", loadAvg.load1min, loadAvg.load5min, loadAvg.load15min))
 	}
 
-	if err != nil && memErr != nil {
-		fmt.Printf("\rTime: %s | CPU: --%%  | Mem: --%% ", currentTime.Format("15:04:05"))
-	} else if err != nil {
-		fmt.Printf("\rTime: %s | CPU: --%%  | Mem: %.1f%% ", currentTime.Format("15:04:05"), memUsage)
-	} else if memErr != nil {
-		fmt.Printf("\rTime: %s | CPU: %.1f%% | Mem: --%% ", currentTime.Format("15:04:05"), cpuUsage)
+	if err != nil {
+		output.WriteString("CPU usage: --% user, --% sys, --% idle")
 	} else {
-		fmt.Printf("\rTime: %s | CPU: %.1f%% | Mem: %.1f%% ", currentTime.Format("15:04:05"), cpuUsage, memUsage)
+		output.WriteString(fmt.Sprintf("CPU usage: %.2f%% user, %.1f%% sys, %.2f%% idle", cpuBreakdown.userPercent, cpuBreakdown.systemPercent, cpuBreakdown.idlePercent))
 	}
+
+	if memErr == nil && memInfo.totalKB > 0 {
+		// Calculate used memory and components
+		usedKB := memInfo.totalKB - memInfo.availableKB
+		wiredKB := memInfo.unevictableKB + (memInfo.activeKB / 4)                     // Approximation for "wired" memory
+		compressorKB := memInfo.buffersKB + memInfo.swapCachedKB + memInfo.cachedKB/2 // Approximation for "compressor"
+		unusedKB := memInfo.freeKB
+
+		output.WriteString(fmt.Sprintf(" | PhysMem: %s used (%s wired, %s compressor), %s unused",
+			formatMemorySize(usedKB),
+			formatMemorySize(wiredKB),
+			formatMemorySize(compressorKB),
+			formatMemorySize(unusedKB)))
+	}
+
+	// Clear line and print the complete output on same line
+	fmt.Printf("\r%s", output.String())
+	os.Stdout.Sync()
 }
