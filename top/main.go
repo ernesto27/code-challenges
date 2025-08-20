@@ -12,7 +12,19 @@ import (
 )
 
 type CPUStats struct {
-	user, nice, system, idle, iowait, irq, softirq, steal uint64
+	user     uint64
+	nice     uint64
+	system   uint64
+	idle     uint64
+	iowait   uint64
+	irq      uint64
+	softirq  uint64
+	steal    uint64
+}
+
+type MemoryInfo struct {
+	totalKB     uint64
+	availableKB uint64
 }
 
 var prevCPUStats *CPUStats
@@ -39,6 +51,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Clear the terminal screen
+	fmt.Print("\033[2J\033[H")
 
 	// Take two quick readings to calculate initial CPU usage
 	prevCPUStats, _ = readCPUStats()
@@ -131,6 +146,46 @@ func calculateCPUUsage(prev, curr *CPUStats) float64 {
 	return (1.0 - float64(idleDiff)/float64(totalDiff)) * 100.0
 }
 
+func readMemoryInfo() (*MemoryInfo, error) {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	memInfo := &MemoryInfo{}
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		key := strings.TrimSuffix(fields[0], ":")
+		valueStr := fields[1]
+		value, err := strconv.ParseUint(valueStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		switch key {
+		case "MemTotal":
+			memInfo.totalKB = value
+		case "MemAvailable":
+			memInfo.availableKB = value
+		}
+
+		// Stop early if we have both values
+		if memInfo.totalKB > 0 && memInfo.availableKB > 0 {
+			break
+		}
+	}
+
+	return memInfo, scanner.Err()
+}
+
 func printSystemInfo() {
 	currentTime := time.Now()
 	cpuStats, err := readCPUStats()
@@ -141,9 +196,21 @@ func printSystemInfo() {
 		prevCPUStats = cpuStats
 	}
 
-	if err != nil {
-		fmt.Printf("\rTime: %s | CPU: --%%", currentTime.Format("15:04:05"))
+	memInfo, memErr := readMemoryInfo()
+
+	var memUsage float64
+	if memErr == nil && memInfo.totalKB > 0 {
+		usedKB := memInfo.totalKB - memInfo.availableKB
+		memUsage = (float64(usedKB) / float64(memInfo.totalKB)) * 100.0
+	}
+
+	if err != nil && memErr != nil {
+		fmt.Printf("\rTime: %s | CPU: --%%  | Mem: --%% ", currentTime.Format("15:04:05"))
+	} else if err != nil {
+		fmt.Printf("\rTime: %s | CPU: --%%  | Mem: %.1f%% ", currentTime.Format("15:04:05"), memUsage)
+	} else if memErr != nil {
+		fmt.Printf("\rTime: %s | CPU: %.1f%% | Mem: --%% ", currentTime.Format("15:04:05"), cpuUsage)
 	} else {
-		fmt.Printf("\rTime: %s | CPU: %.1f%%", currentTime.Format("15:04:05"), cpuUsage)
+		fmt.Printf("\rTime: %s | CPU: %.1f%% | Mem: %.1f%% ", currentTime.Format("15:04:05"), cpuUsage, memUsage)
 	}
 }
