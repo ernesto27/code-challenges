@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,16 +21,7 @@ var prevCPUStats *CPUStats
 var processDisplayOffset int
 var allProcesses []ProcessInfo
 var processPageSize = 20
-
-// clearScreenAndHideCursor clears the terminal screen and hides the cursor
-func clearScreenAndHideCursor() {
-	fmt.Print("\033[2J\033[H\033[?25l")
-}
-
-// showCursor shows the terminal cursor
-func showCursor() {
-	fmt.Print("\033[?25h")
-}
+var processMap = make(map[int]*ProcessInfo)
 
 func main() {
 
@@ -216,9 +206,26 @@ func printSystemInfo() {
 
 	// Get process data and add to output
 	var err2 error
-	allProcesses, err2 = getRunningProcess()
+	newProcesses, err2 := GetRunningProcesses()
 	if err2 == nil {
-		output.WriteString("PID    COMMAND\n")
+		// Update process CPU calculations and store in map
+		for i := range newProcesses {
+			proc := &newProcesses[i]
+			if prevProc, exists := processMap[proc.PID]; exists {
+				// Copy previous measurements
+				proc.PrevUTime = prevProc.UTime
+				proc.PrevSTime = prevProc.STime
+				proc.PrevMeasurementTime = prevProc.PrevMeasurementTime
+				proc.HasPrevMeasurement = prevProc.HasPrevMeasurement
+				proc.CalculateCPUUsage()
+			}
+			proc.UpdateMeasurement()
+			processCopy := *proc
+			processMap[proc.PID] = &processCopy
+		}
+
+		allProcesses = newProcesses
+		output.WriteString("PID     %CPU COMMAND          TIME+\n")
 
 		// Calculate the range of processes to display
 		startIdx := processDisplayOffset
@@ -231,12 +238,17 @@ func printSystemInfo() {
 		for i := startIdx; i < endIdx; i++ {
 			proc := allProcesses[i]
 			output.WriteString("\r")
-			// Truncate command name if too long to maintain table formatting
+
+			// Format command name with fixed width
 			name := proc.Name
-			if len(name) > 12 {
-				name = name[:12]
+			if len(name) > 15 {
+				name = name[:15]
 			}
-			output.WriteString(fmt.Sprintf("%-6d %s\n", proc.PID, name))
+
+			timeStr := proc.GetTime()
+
+			output.WriteString(fmt.Sprintf("%-7d %5.1f %-15s %s\n",
+				proc.PID, proc.CPUUsage, name, timeStr))
 		}
 
 		// Show pagination info
@@ -255,39 +267,12 @@ func printSystemInfo() {
 	os.Stdout.Sync()
 }
 
-type ProcessInfo struct {
-	PID      int
-	Name     string
-	CPUUsage float64
+// clearScreenAndHideCursor clears the terminal screen and hides the cursor
+func clearScreenAndHideCursor() {
+	fmt.Print("\033[2J\033[H\033[?25l")
 }
 
-func getRunningProcess() ([]ProcessInfo, error) {
-	dataProcess, err := os.ReadDir("/proc/")
-	if err != nil {
-		return nil, err
-	}
-
-	var processes []ProcessInfo
-
-	for _, entry := range dataProcess {
-		if !entry.IsDir() {
-			continue
-		}
-
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-
-		commPath := filepath.Join("/proc", entry.Name(), "comm")
-		data, err := os.ReadFile(commPath)
-		if err != nil {
-			continue
-		}
-
-		name := strings.TrimSpace(string(data))
-		processes = append(processes, ProcessInfo{PID: pid, Name: name})
-	}
-
-	return processes, nil
+// showCursor shows the terminal cursor
+func showCursor() {
+	fmt.Print("\033[?25h")
 }
