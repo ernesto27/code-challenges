@@ -215,7 +215,14 @@ func (p *ProcessInfo) IsSleeping() bool {
 
 func (p *ProcessInfo) GetTime() string {
 	sum := p.UTime + p.STime
-	return strconv.FormatUint(sum/100, 10)
+	duration := time.Duration(sum) * time.Second
+
+	hours := int(duration.Hours())
+	minutes := int(duration.Minutes()) % 60
+	seconds := int(duration.Seconds()) % 60
+
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+
 }
 
 // GetRunningProcesses returns a list of all running processes
