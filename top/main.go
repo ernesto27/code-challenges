@@ -4,34 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/term"
 )
-
-type CPUStats struct {
-	user    uint64
-	nice    uint64
-	system  uint64
-	idle    uint64
-	iowait  uint64
-	irq     uint64
-	softirq uint64
-	steal   uint64
-}
-
-type MemoryInfo struct {
-	totalKB       uint64
-	availableKB   uint64
-	freeKB        uint64
-	buffersKB     uint64
-	cachedKB      uint64
-	unevictableKB uint64
-	activeKB      uint64
-	swapCachedKB  uint64
-}
 
 type LoadAverage struct {
 	load1min  float64
@@ -40,6 +19,9 @@ type LoadAverage struct {
 }
 
 var prevCPUStats *CPUStats
+var processDisplayOffset int
+var allProcesses []ProcessInfo
+var processPageSize = 20
 
 // clearScreenAndHideCursor clears the terminal screen and hides the cursor
 func clearScreenAndHideCursor() {
@@ -52,6 +34,7 @@ func showCursor() {
 }
 
 func main() {
+
 	// Get the file descriptor for standard input
 	fd := int(os.Stdin.Fd())
 
@@ -81,7 +64,7 @@ func main() {
 	clearScreenAndHideCursor()
 
 	// Take two quick readings to calculate initial CPU usage
-	prevCPUStats, _ = readCPUStats()
+	prevCPUStats, _ = NewCPUStats()
 	time.Sleep(100 * time.Millisecond) // Very brief pause
 	printSystemInfo()
 
@@ -90,17 +73,17 @@ func main() {
 	defer ticker.Stop()
 
 	// Channel for keyboard input
-	inputCh := make(chan byte, 1)
+	inputCh := make(chan []byte, 1)
 
 	// Goroutine to handle keyboard input
 	go func() {
 		for {
-			var buf [1]byte
-			_, err := os.Stdin.Read(buf[:])
+			var buf [3]byte
+			n, err := os.Stdin.Read(buf[:])
 			if err != nil {
 				return
 			}
-			inputCh <- buf[0]
+			inputCh <- buf[:n]
 		}
 	}()
 
@@ -111,140 +94,34 @@ func main() {
 			clearScreenAndHideCursor()
 			printSystemInfo()
 
-		case char := <-inputCh:
+		case input := <-inputCh:
 			// Handle keyboard input
-			if char == 'q' || char == 'Q' || char == 3 { // 'q', 'Q', or Ctrl+C
+			if len(input) == 1 && (input[0] == 'q' || input[0] == 'Q' || input[0] == '\x03') { // 'q', 'Q', or Ctrl+C
 				fmt.Println()
 				return
 			}
-		}
-	}
-}
 
-func readCPUStats() (*CPUStats, error) {
-	file, err := os.Open("/proc/stat")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+			inputStr := string(input)
+			switch inputStr {
+			case "\x1b[B":
+				if processDisplayOffset+processPageSize < len(allProcesses) {
+					processDisplayOffset += processPageSize
+					clearScreenAndHideCursor()
+					printSystemInfo()
+				}
 
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("failed to read CPU line")
-	}
-
-	line := scanner.Text()
-	fields := strings.Fields(line)
-	if len(fields) < 8 || fields[0] != "cpu" {
-		return nil, fmt.Errorf("invalid CPU line format")
-	}
-
-	stats := &CPUStats{}
-	values := []*uint64{&stats.user, &stats.nice, &stats.system, &stats.idle,
-		&stats.iowait, &stats.irq, &stats.softirq, &stats.steal}
-
-	for i, val := range values {
-		parsed, err := strconv.ParseUint(fields[i+1], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		*val = parsed
-	}
-
-	return stats, nil
-}
-
-type CPUUsageBreakdown struct {
-	userPercent   float64
-	systemPercent float64
-	idlePercent   float64
-}
-
-func calculateCPUBreakdown(prev, curr *CPUStats) *CPUUsageBreakdown {
-	if prev == nil {
-		return &CPUUsageBreakdown{0.0, 0.0, 0.0}
-	}
-
-	prevTotal := prev.user + prev.nice + prev.system + prev.idle + prev.iowait + prev.irq + prev.softirq + prev.steal
-	currTotal := curr.user + curr.nice + curr.system + curr.idle + curr.iowait + curr.irq + curr.softirq + curr.steal
-
-	totalDiff := currTotal - prevTotal
-	if totalDiff == 0 {
-		return &CPUUsageBreakdown{0.0, 0.0, 0.0}
-	}
-
-	userDiff := (curr.user + curr.nice) - (prev.user + prev.nice)
-	systemDiff := (curr.system + curr.irq + curr.softirq) - (prev.system + prev.irq + prev.softirq)
-	idleDiff := curr.idle - prev.idle
-
-	return &CPUUsageBreakdown{
-		userPercent:   (float64(userDiff) / float64(totalDiff)) * 100.0,
-		systemPercent: (float64(systemDiff) / float64(totalDiff)) * 100.0,
-		idlePercent:   (float64(idleDiff) / float64(totalDiff)) * 100.0,
-	}
-}
-
-func readMemoryInfo() (*MemoryInfo, error) {
-	file, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	memInfo := &MemoryInfo{}
-	scanner := bufio.NewScanner(file)
-
-	fieldsFound := 0
-	targetFields := 8 // Number of fields we want to collect
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
+			case "\x1b[A":
+				if processDisplayOffset-processPageSize >= 0 {
+					processDisplayOffset -= processPageSize
+				} else {
+					processDisplayOffset = 0
+				}
+				clearScreenAndHideCursor()
+				printSystemInfo()
+			}
 		}
 
-		key := strings.TrimSuffix(fields[0], ":")
-		valueStr := fields[1]
-		value, err := strconv.ParseUint(valueStr, 10, 64)
-		if err != nil {
-			continue
-		}
-
-		switch key {
-		case "MemTotal":
-			memInfo.totalKB = value
-			fieldsFound++
-		case "MemAvailable":
-			memInfo.availableKB = value
-			fieldsFound++
-		case "MemFree":
-			memInfo.freeKB = value
-			fieldsFound++
-		case "Buffers":
-			memInfo.buffersKB = value
-			fieldsFound++
-		case "Cached":
-			memInfo.cachedKB = value
-			fieldsFound++
-		case "Unevictable":
-			memInfo.unevictableKB = value
-			fieldsFound++
-		case "Active":
-			memInfo.activeKB = value
-			fieldsFound++
-		case "SwapCached":
-			memInfo.swapCachedKB = value
-			fieldsFound++
-		}
-
-		// Stop early if we have all target values
-		if fieldsFound >= targetFields {
-			break
-		}
 	}
-
-	return memInfo, scanner.Err()
 }
 
 func readLoadAverage() (*LoadAverage, error) {
@@ -288,28 +165,17 @@ func readLoadAverage() (*LoadAverage, error) {
 	return loadAvg, nil
 }
 
-func formatMemorySize(kb uint64) string {
-	if kb >= 1024*1024 {
-		gb := float64(kb) / (1024 * 1024)
-		return fmt.Sprintf("%.0fG", gb)
-	} else if kb >= 1024 {
-		mb := float64(kb) / 1024
-		return fmt.Sprintf("%.0fM", mb)
-	}
-	return fmt.Sprintf("%dK", kb)
-}
-
 func printSystemInfo() {
 	currentTime := time.Now()
-	cpuStats, err := readCPUStats()
+	cpuStats, err := NewCPUStats()
 
 	var cpuBreakdown *CPUUsageBreakdown
 	if err == nil {
-		cpuBreakdown = calculateCPUBreakdown(prevCPUStats, cpuStats)
+		cpuBreakdown = cpuStats.CalculateUsage(prevCPUStats)
 		prevCPUStats = cpuStats
 	}
 
-	memInfo, memErr := readMemoryInfo()
+	memInfo, memErr := NewMemoryInfo()
 
 	loadAvg, loadErr := readLoadAverage()
 
@@ -330,20 +196,98 @@ func printSystemInfo() {
 	}
 
 	if memErr == nil && memInfo.totalKB > 0 {
-		// Calculate used memory and components
-		usedKB := memInfo.totalKB - memInfo.availableKB
-		wiredKB := memInfo.unevictableKB + (memInfo.activeKB / 4)                     // Approximation for "wired" memory
-		compressorKB := memInfo.buffersKB + memInfo.swapCachedKB + memInfo.cachedKB/2 // Approximation for "compressor"
-		unusedKB := memInfo.freeKB
+		// Calculate used memory and components using the new methods
+		usedKB := memInfo.GetUsedMemory()
+		wiredKB := memInfo.GetWiredMemory()
+		compressorKB := memInfo.GetCompressorMemory()
+		unusedKB := memInfo.GetUnusedMemory()
 
-		output.WriteString(fmt.Sprintf(" | PhysMem: %s used (%s wired, %s compressor), %s unused",
-			formatMemorySize(usedKB),
-			formatMemorySize(wiredKB),
-			formatMemorySize(compressorKB),
-			formatMemorySize(unusedKB)))
+		output.WriteString(fmt.Sprintf(" | PhysMem: %s used (%s wired, %s compressor), %s unused\n",
+			memInfo.FormatSize(usedKB),
+			memInfo.FormatSize(wiredKB),
+			memInfo.FormatSize(compressorKB),
+			memInfo.FormatSize(unusedKB)))
+	} else {
+		output.WriteString("\n")
 	}
 
-	// Clear line and print the complete output on same line
-	fmt.Printf("\r%s", output.String())
+	output.WriteString("\n")
+	output.WriteString("\r")
+
+	// Get process data and add to output
+	var err2 error
+	allProcesses, err2 = getRunningProcess()
+	if err2 == nil {
+		output.WriteString("PID    COMMAND\n")
+
+		// Calculate the range of processes to display
+		startIdx := processDisplayOffset
+		endIdx := processDisplayOffset + processPageSize
+		if endIdx > len(allProcesses) {
+			endIdx = len(allProcesses)
+		}
+
+		// Display only the current page of processes
+		for i := startIdx; i < endIdx; i++ {
+			proc := allProcesses[i]
+			output.WriteString("\r")
+			// Truncate command name if too long to maintain table formatting
+			name := proc.Name
+			if len(name) > 12 {
+				name = name[:12]
+			}
+			output.WriteString(fmt.Sprintf("%-6d %s\n", proc.PID, name))
+		}
+
+		// Show pagination info
+		totalProcesses := len(allProcesses)
+		displayedEnd := endIdx
+		if displayedEnd > totalProcesses {
+			displayedEnd = totalProcesses
+		}
+		output.WriteString(fmt.Sprintf("\nShowing %d-%d of %d processes (Press ↓ for more)",
+			startIdx+1, displayedEnd, totalProcesses))
+	}
+
+	// Clear screen, position cursor and print complete output
+	fmt.Print("\033[2J\033[H")
+	fmt.Print(output.String())
 	os.Stdout.Sync()
+}
+
+type ProcessInfo struct {
+	PID      int
+	Name     string
+	CPUUsage float64
+}
+
+func getRunningProcess() ([]ProcessInfo, error) {
+	dataProcess, err := os.ReadDir("/proc/")
+	if err != nil {
+		return nil, err
+	}
+
+	var processes []ProcessInfo
+
+	for _, entry := range dataProcess {
+		if !entry.IsDir() {
+			continue
+		}
+
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		commPath := filepath.Join("/proc", entry.Name(), "comm")
+		data, err := os.ReadFile(commPath)
+		if err != nil {
+			continue
+		}
+
+		name := strings.TrimSpace(string(data))
+		processes = append(processes, ProcessInfo{PID: pid, Name: name})
+	}
+
+	return processes, nil
 }
