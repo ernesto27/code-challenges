@@ -1,278 +1,204 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/term"
+	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-type LoadAverage struct {
-	load1min  float64
-	load5min  float64
-	load15min float64
+var baseStyle = lipgloss.NewStyle().
+	BorderStyle(lipgloss.NormalBorder()).
+	BorderForeground(lipgloss.Color("240"))
+
+type model struct {
+	table        table.Model
+	processes    []*ProcessInfo
+	processMap   map[int]*ProcessInfo
+	cpuStats     *CPUStats
+	prevCPUStats *CPUStats
+	lastUpdate   time.Time
 }
 
-var prevCPUStats *CPUStats
-var processDisplayOffset int
-var allProcesses []*ProcessInfo
-var processPageSize = 20
-var processMap = make(map[int]*ProcessInfo)
+type tickMsg time.Time
 
-func main() {
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
 
-	// Get the file descriptor for standard input
-	fd := int(os.Stdin.Fd())
+func (m model) Init() tea.Cmd {
+	return tickCmd()
+}
 
-	// Check if standard input is a terminal
-	if !term.IsTerminal(fd) {
-		fmt.Println("Not running in a terminal.")
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			if m.table.Focused() {
+				m.table.Blur()
+			} else {
+				m.table.Focus()
+			}
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		}
+	case tickMsg:
+		m.updateProcessData()
+		return m, tickCmd()
+	}
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+func (m *model) updateProcessData() {
+	// Get new process data
+	newProcesses, err := GetRunningProcesses()
+	if err != nil {
 		return
 	}
 
-	// Save the original terminal state so we can restore it later
-	oldState, err := term.GetState(fd)
-	if err != nil {
-		panic(err)
-	}
-	defer func() {
-		showCursor()
-		term.Restore(fd, oldState)
-	}()
-
-	// Put the terminal into raw mode. This disables input echoing.
-	_, err = term.MakeRaw(fd)
-	if err != nil {
-		panic(err)
-	}
-
-	// Clear the terminal screen and hide cursor
-	clearScreenAndHideCursor()
-
-	// Take two quick readings to calculate initial CPU usage
-	prevCPUStats, _ = NewCPUStats()
-	time.Sleep(100 * time.Millisecond) // Very brief pause
-	printSystemInfo()
-
-	// Create a ticker for 5-second intervals
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	// Channel for keyboard input
-	inputCh := make(chan []byte, 1)
-
-	// Goroutine to handle keyboard input
-	go func() {
-		for {
-			var buf [3]byte
-			n, err := os.Stdin.Read(buf[:])
-			if err != nil {
-				return
-			}
-			inputCh <- buf[:n]
+	// Update CPU calculations
+	for _, proc := range newProcesses {
+		if prevProc, exists := m.processMap[proc.PID]; exists {
+			// Copy previous measurements
+			proc.PrevUTime = prevProc.UTime
+			proc.PrevSTime = prevProc.STime
+			proc.PrevMeasurementTime = prevProc.PrevMeasurementTime
+			proc.HasPrevMeasurement = prevProc.HasPrevMeasurement
+			proc.CalculateCPUUsage()
 		}
-	}()
+		proc.UpdateMeasurement()
+		processCopy := *proc
+		m.processMap[proc.PID] = &processCopy
+	}
 
-	// Main event loop
-	for {
-		select {
-		case <-ticker.C:
-			clearScreenAndHideCursor()
-			printSystemInfo()
+	// Sort processes by CPU usage (descending)
+	sort.Slice(newProcesses, func(i, j int) bool {
+		return newProcesses[i].CPUUsage > newProcesses[j].CPUUsage
+	})
 
-		case input := <-inputCh:
-			// Handle keyboard input
-			if len(input) == 1 && (input[0] == 'q' || input[0] == 'Q' || input[0] == '\x03') { // 'q', 'Q', or Ctrl+C
-				fmt.Println()
-				return
-			}
+	m.processes = newProcesses
 
-			inputStr := string(input)
-			switch inputStr {
-			case "\x1b[B":
-				if processDisplayOffset+processPageSize < len(allProcesses) {
-					processDisplayOffset += processPageSize
-					clearScreenAndHideCursor()
-					printSystemInfo()
-				}
-
-			case "\x1b[A":
-				if processDisplayOffset-processPageSize >= 0 {
-					processDisplayOffset -= processPageSize
-				} else {
-					processDisplayOffset = 0
-				}
-				clearScreenAndHideCursor()
-				printSystemInfo()
-			}
+	// Convert processes to table rows
+	rows := make([]table.Row, len(m.processes))
+	for i, proc := range m.processes {
+		name := proc.Name
+		if len(name) > 15 {
+			name = name[:15]
 		}
 
+		rows[i] = table.Row{
+			strconv.Itoa(proc.PID),
+			fmt.Sprintf("%.1f", proc.CPUUsage),
+			name,
+			proc.GetTime(),
+			strconv.Itoa(proc.ThreadsCount),
+			proc.Username,
+		}
 	}
+
+	m.table.SetRows(rows)
+	m.lastUpdate = time.Now()
 }
 
-func readLoadAverage() (*LoadAverage, error) {
-	file, err := os.Open("/proc/loadavg")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("failed to read loadavg line")
-	}
-
-	line := scanner.Text()
-	fields := strings.Fields(line)
-	if len(fields) < 3 {
-		return nil, fmt.Errorf("invalid loadavg format")
-	}
-
-	loadAvg := &LoadAverage{}
-
-	load1, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse 1min load average: %v", err)
-	}
-	loadAvg.load1min = load1
-
-	load5, err := strconv.ParseFloat(fields[1], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse 5min load average: %v", err)
-	}
-	loadAvg.load5min = load5
-
-	load15, err := strconv.ParseFloat(fields[2], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse 15min load average: %v", err)
-	}
-	loadAvg.load15min = load15
-
-	return loadAvg, nil
-}
-
-func printSystemInfo() {
+func (m model) View() string {
+	// System info header
 	currentTime := time.Now()
-	cpuStats, err := NewCPUStats()
 
-	var cpuBreakdown *CPUUsageBreakdown
-	if err == nil {
-		cpuBreakdown = cpuStats.CalculateUsage(prevCPUStats)
-		prevCPUStats = cpuStats
+	var header strings.Builder
+	header.WriteString(fmt.Sprintf("Time: %s", currentTime.Format("15:04:05")))
+
+	// Get CPU info
+	if cpuStats, err := NewCPUStats(); err == nil {
+		if m.prevCPUStats != nil {
+			cpuBreakdown := cpuStats.CalculateUsage(m.prevCPUStats)
+			header.WriteString(fmt.Sprintf(" | CPU: %.1f%% user, %.1f%% sys, %.1f%% idle",
+				cpuBreakdown.userPercent, cpuBreakdown.systemPercent, cpuBreakdown.idlePercent))
+		}
 	}
 
-	memInfo, memErr := NewMemoryInfo()
-
-	loadAvg, loadErr := readLoadAverage()
-
-	// Build the complete output string first
-	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Time: %s | ", currentTime.Format("15:04:05")))
-
-	if loadErr != nil {
-		output.WriteString("Load Avg: --, --, -- | ")
-	} else {
-		output.WriteString(fmt.Sprintf("Load Avg: %.2f, %.2f, %.2f | ", loadAvg.load1min, loadAvg.load5min, loadAvg.load15min))
-	}
-
-	if err != nil {
-		output.WriteString("CPU usage: --% user, --% sys, --% idle")
-	} else {
-		output.WriteString(fmt.Sprintf("CPU usage: %.2f%% user, %.1f%% sys, %.2f%% idle", cpuBreakdown.userPercent, cpuBreakdown.systemPercent, cpuBreakdown.idlePercent))
-	}
-
-	if memErr == nil && memInfo.totalKB > 0 {
-		// Calculate used memory and components using the new methods
+	// Get memory info
+	if memInfo, err := NewMemoryInfo(); err == nil && memInfo.totalKB > 0 {
 		usedKB := memInfo.GetUsedMemory()
-		wiredKB := memInfo.GetWiredMemory()
-		compressorKB := memInfo.GetCompressorMemory()
 		unusedKB := memInfo.GetUnusedMemory()
-
-		output.WriteString(fmt.Sprintf(" | PhysMem: %s used (%s wired, %s compressor), %s unused\n",
-			memInfo.FormatSize(usedKB),
-			memInfo.FormatSize(wiredKB),
-			memInfo.FormatSize(compressorKB),
-			memInfo.FormatSize(unusedKB)))
-	} else {
-		output.WriteString("\n")
+		header.WriteString(fmt.Sprintf(" | PhysMem: %s used, %s unused",
+			memInfo.FormatSize(usedKB), memInfo.FormatSize(unusedKB)))
 	}
 
-	output.WriteString("\n")
-	output.WriteString("\r")
+	headerStr := header.String()
+	tableStr := baseStyle.Render(m.table.View())
 
-	// Get process data and add to output
-	var err2 error
-	newProcesses, err2 := GetRunningProcesses()
-	if err2 == nil {
-		// Update process CPU calculations and store in map
-		for i := range newProcesses {
-			proc := newProcesses[i]
-			if prevProc, exists := processMap[proc.PID]; exists {
-				// Copy previous measurements
-				proc.PrevUTime = prevProc.UTime
-				proc.PrevSTime = prevProc.STime
-				proc.PrevMeasurementTime = prevProc.PrevMeasurementTime
-				proc.HasPrevMeasurement = prevProc.HasPrevMeasurement
-				proc.CalculateCPUUsage()
-			}
-			proc.UpdateMeasurement()
-			processCopy := *proc
-			processMap[proc.PID] = &processCopy
-		}
+	return headerStr + "\n\n" + tableStr + "\n\nPress q to quit • Use ↑/↓ to navigate"
+}
 
-		allProcesses = newProcesses
-		output.WriteString("PID     %CPU COMMAND          TIME+     #TH USER\n")
+func main() {
+	// Initialize process data
+	processMap := make(map[int]*ProcessInfo)
 
-		// Calculate the range of processes to display
-		startIdx := processDisplayOffset
-		endIdx := processDisplayOffset + processPageSize
-		if endIdx > len(allProcesses) {
-			endIdx = len(allProcesses)
-		}
+	// Take initial CPU reading
+	prevCPUStats, err := NewCPUStats()
+	if err != nil {
+		fmt.Printf("Error reading CPU stats: %v\n", err)
+		os.Exit(1)
+	}
+	time.Sleep(100 * time.Millisecond)
 
-		// Display only the current page of processes
-		for i := startIdx; i < endIdx; i++ {
-			proc := allProcesses[i]
-			output.WriteString("\r")
-
-			// Format command name with fixed width
-			name := proc.Name
-			if len(name) > 15 {
-				name = name[:15]
-			}
-
-			timeStr := proc.GetTime()
-
-			output.WriteString(fmt.Sprintf("%-7d %5.1f %-15s %9s %4d %s\n",
-				proc.PID, proc.CPUUsage, name, timeStr, proc.ThreadsCount, proc.Username))
-		}
-
-		// Show pagination info
-		totalProcesses := len(allProcesses)
-		displayedEnd := endIdx
-		if displayedEnd > totalProcesses {
-			displayedEnd = totalProcesses
-		}
-		output.WriteString(fmt.Sprintf("\nShowing %d-%d of %d processes (Press ↓ for more)",
-			startIdx+1, displayedEnd, totalProcesses))
+	// Define table columns
+	columns := []table.Column{
+		{Title: "PID", Width: 8},
+		{Title: "%CPU", Width: 6},
+		{Title: "COMMAND", Width: 15},
+		{Title: "TIME+", Width: 9},
+		{Title: "#TH", Width: 4},
+		{Title: "USER", Width: 12},
 	}
 
-	// Clear screen, position cursor and print complete output
-	fmt.Print("\033[2J\033[H")
-	fmt.Print(output.String())
-	os.Stdout.Sync()
-}
+	// Create initial empty table
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(true),
+		table.WithHeight(20),
+	)
 
-// clearScreenAndHideCursor clears the terminal screen and hides the cursor
-func clearScreenAndHideCursor() {
-	fmt.Print("\033[2J\033[H\033[?25l")
-}
+	// Style the table
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+	t.SetStyles(s)
 
-// showCursor shows the terminal cursor
-func showCursor() {
-	fmt.Print("\033[?25h")
+	// Create model
+	m := model{
+		table:        t,
+		processMap:   processMap,
+		prevCPUStats: prevCPUStats,
+		lastUpdate:   time.Now(),
+	}
+
+	// Initial data load
+	m.updateProcessData()
+
+	// Run the program
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Alas, there's been an error: %v", err)
+		os.Exit(1)
+	}
 }
