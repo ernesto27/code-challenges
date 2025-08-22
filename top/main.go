@@ -19,7 +19,7 @@ type LoadAverage struct {
 
 var prevCPUStats *CPUStats
 var processDisplayOffset int
-var allProcesses []ProcessInfo
+var allProcesses []*ProcessInfo
 var processPageSize = 20
 var processMap = make(map[int]*ProcessInfo)
 
@@ -210,7 +210,7 @@ func printSystemInfo() {
 	if err2 == nil {
 		// Update process CPU calculations and store in map
 		for i := range newProcesses {
-			proc := &newProcesses[i]
+			proc := newProcesses[i]
 			if prevProc, exists := processMap[proc.PID]; exists {
 				// Copy previous measurements
 				proc.PrevUTime = prevProc.UTime
@@ -225,7 +225,7 @@ func printSystemInfo() {
 		}
 
 		allProcesses = newProcesses
-		output.WriteString("PID     %CPU COMMAND          TIME+\n")
+		output.WriteString("PID     %CPU COMMAND          TIME+     #TH USER\n")
 
 		// Calculate the range of processes to display
 		startIdx := processDisplayOffset
@@ -247,8 +247,8 @@ func printSystemInfo() {
 
 			timeStr := proc.GetTime()
 
-			output.WriteString(fmt.Sprintf("%-7d %5.1f %-15s %s\n",
-				proc.PID, proc.CPUUsage, name, timeStr))
+			output.WriteString(fmt.Sprintf("%-7d %5.1f %-15s %9s %4d %s\n",
+				proc.PID, proc.CPUUsage, name, timeStr, proc.ThreadsCount, proc.Username))
 		}
 
 		// Show pagination info

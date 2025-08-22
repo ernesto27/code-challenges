@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,12 +21,16 @@ type ProcessInfo struct {
 	UTime     uint64
 	STime     uint64
 	StartTime uint64
+	UID       uint32
+	Username  string
 
 	// Previous measurement for CPU calculation
 	PrevUTime           uint64
 	PrevSTime           uint64
 	PrevMeasurementTime int64
 	HasPrevMeasurement  bool
+
+	ThreadsCount int
 }
 
 type ProcessStats struct {
@@ -34,8 +39,7 @@ type ProcessStats struct {
 }
 
 // Read populates process information from /proc/[pid]/
-func (p *ProcessInfo) Read(pid int) error {
-	p.PID = pid
+func (p *ProcessInfo) Read() error {
 
 	// Read process name from /proc/[pid]/comm
 	if err := p.readComm(); err != nil {
@@ -49,8 +53,12 @@ func (p *ProcessInfo) Read(pid int) error {
 
 	// Read memory usage from /proc/[pid]/status
 	if err := p.readStatus(); err != nil {
-		// Memory info is optional, don't fail if we can't read it
-		p.MemoryKB = 0
+		return err
+	}
+
+	// Read thread count from /proc/[pid]/task
+	if err := p.ReadTasks(); err != nil {
+		return err
 	}
 
 	return nil
@@ -113,7 +121,7 @@ func (p *ProcessInfo) readStat() error {
 	return nil
 }
 
-// readStatus reads memory information from /proc/[pid]/status
+// readStatus reads memory information, UID, and username from /proc/[pid]/status
 func (p *ProcessInfo) readStatus() error {
 	statusPath := filepath.Join("/proc", strconv.Itoa(p.PID), "status")
 	file, err := os.Open(statusPath)
@@ -122,6 +130,7 @@ func (p *ProcessInfo) readStatus() error {
 	}
 	defer file.Close()
 
+	var foundMemory, foundUID bool
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,16 +140,55 @@ func (p *ProcessInfo) readStatus() error {
 		}
 
 		key := strings.TrimSuffix(fields[0], ":")
-		if key == "VmRSS" && len(fields) >= 2 {
+		
+		if key == "VmRSS" && len(fields) >= 2 && !foundMemory {
 			value, err := strconv.ParseUint(fields[1], 10, 64)
 			if err == nil {
 				p.MemoryKB = value
+				foundMemory = true
 			}
+		} else if key == "Uid" && len(fields) >= 2 && !foundUID {
+			// Uid field format: "Uid: real_uid effective_uid saved_uid filesystem_uid"
+			// We want the effective UID (second field)
+			uid, err := strconv.ParseUint(fields[1], 10, 32)
+			if err == nil {
+				p.UID = uint32(uid)
+				// Resolve username from UID
+				if u, err := user.LookupId(fields[1]); err == nil {
+					p.Username = u.Username
+				} else {
+					p.Username = fields[1] // fallback to UID string if lookup fails
+				}
+				foundUID = true
+			}
+		}
+
+		// Exit early if we found both values we're looking for
+		if foundMemory && foundUID {
 			break
 		}
 	}
 
 	return scanner.Err()
+}
+
+func (p *ProcessInfo) ReadTasks() error {
+	path := "/proc/" + strconv.Itoa(p.PID) + "/task"
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	var dirCount int
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirCount++
+		}
+	}
+	p.ThreadsCount = dirCount
+	return nil
+
 }
 
 // UpdateMeasurement stores current CPU times as previous for next calculation
@@ -226,13 +274,13 @@ func (p *ProcessInfo) GetTime() string {
 }
 
 // GetRunningProcesses returns a list of all running processes
-func GetRunningProcesses() ([]ProcessInfo, error) {
+func GetRunningProcesses() ([]*ProcessInfo, error) {
 	entries, err := os.ReadDir("/proc/")
 	if err != nil {
 		return nil, err
 	}
 
-	var processes []ProcessInfo
+	var processes []*ProcessInfo
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -244,8 +292,8 @@ func GetRunningProcesses() ([]ProcessInfo, error) {
 			continue
 		}
 
-		var proc ProcessInfo
-		if err := proc.Read(pid); err != nil {
+		proc, err := NewProcessInfo(pid)
+		if err != nil {
 			// Skip processes we can't read (permission issues, etc.)
 			continue
 		}
@@ -259,6 +307,7 @@ func GetRunningProcesses() ([]ProcessInfo, error) {
 // NewProcessInfo creates a new ProcessInfo for the given PID
 func NewProcessInfo(pid int) (*ProcessInfo, error) {
 	proc := &ProcessInfo{}
-	err := proc.Read(pid)
+	proc.PID = pid
+	err := proc.Read()
 	return proc, err
 }
