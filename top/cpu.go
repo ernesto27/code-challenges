@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type CPUStats struct {
+type CPUCoreStats struct {
 	user    uint64
 	nice    uint64
 	system  uint64
@@ -19,10 +19,31 @@ type CPUStats struct {
 	steal   uint64
 }
 
+type CPUStats struct {
+	CPUCoreStats
+	cores []CPUCoreStats
+}
+
 type CPUUsageBreakdown struct {
 	userPercent   float64
 	systemPercent float64
 	idlePercent   float64
+}
+
+// parseCPUFields parses CPU statistics fields from /proc/stat line
+func parseCPUFields(fields []string, values []*uint64) error {
+	if len(fields) < len(values)+1 {
+		return fmt.Errorf("insufficient fields in CPU line")
+	}
+
+	for i, val := range values {
+		parsed, err := strconv.ParseUint(fields[i+1], 10, 64)
+		if err != nil {
+			return err
+		}
+		*val = parsed
+	}
+	return nil
 }
 
 // Read reads CPU statistics from /proc/stat
@@ -34,25 +55,37 @@ func (c *CPUStats) Read() error {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return fmt.Errorf("failed to read CPU line")
-	}
 
-	line := scanner.Text()
-	fields := strings.Fields(line)
-	if len(fields) < 8 || fields[0] != "cpu" {
-		return fmt.Errorf("invalid CPU line format")
-	}
+	// Read individual CPU core stats
+	c.cores = []CPUCoreStats{}
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
 
-	values := []*uint64{&c.user, &c.nice, &c.system, &c.idle,
-		&c.iowait, &c.irq, &c.softirq, &c.steal}
+		if strings.Contains(line, "cpu") {
+			// This is the total CPU line, parse it separately
 
-	for i, val := range values {
-		parsed, err := strconv.ParseUint(fields[i+1], 10, 64)
-		if err != nil {
-			return err
+			// Check if this is a CPU core line (cpu0, cpu1, etc.)
+			if len(fields) < 8 || !strings.HasPrefix(fields[0], "cpu") || fields[0] == "cpu" {
+				values := []*uint64{&c.user, &c.nice, &c.system, &c.idle,
+					&c.iowait, &c.irq, &c.softirq, &c.steal}
+
+				if err := parseCPUFields(fields, values); err != nil {
+					return err
+				}
+				continue
+			}
+
+			core := CPUCoreStats{}
+			coreValues := []*uint64{&core.user, &core.nice, &core.system, &core.idle,
+				&core.iowait, &core.irq, &core.softirq, &core.steal}
+
+			if err := parseCPUFields(fields, coreValues); err != nil {
+				return err
+			}
+
+			c.cores = append(c.cores, core)
 		}
-		*val = parsed
 	}
 
 	return nil
@@ -81,6 +114,10 @@ func (c *CPUStats) CalculateUsage(prev *CPUStats) *CPUUsageBreakdown {
 		systemPercent: (float64(systemDiff) / float64(totalDiff)) * 100.0,
 		idlePercent:   (float64(idleDiff) / float64(totalDiff)) * 100.0,
 	}
+}
+
+func (c *CPUStats) CalculateUsagePerCore() {
+
 }
 
 // getProcessTimes reads /proc/[pid]/stat to get the process's user and system time.
