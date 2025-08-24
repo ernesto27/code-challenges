@@ -9,28 +9,23 @@ import (
 )
 
 type MemoryInfo struct {
-	totalKB       uint64
-	availableKB   uint64
-	freeKB        uint64
-	buffersKB     uint64
-	cachedKB      uint64
-	unevictableKB uint64
-	activeKB      uint64
-	swapCachedKB  uint64
+	totalKB     uint64
+	availableKB uint64
+	usageInGB   string
 }
 
-// Read reads memory information from /proc/meminfo
-func (m *MemoryInfo) Read() error {
+// GetUsageInGB returns memory usage in format like "12GB/32GB"
+func (m *MemoryInfo) GetUsageInGB() (string, error) {
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 
 	fieldsFound := 0
-	targetFields := 8 // Number of fields we want to collect
+	targetFields := 2
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -53,24 +48,6 @@ func (m *MemoryInfo) Read() error {
 		case "MemAvailable":
 			m.availableKB = value
 			fieldsFound++
-		case "MemFree":
-			m.freeKB = value
-			fieldsFound++
-		case "Buffers":
-			m.buffersKB = value
-			fieldsFound++
-		case "Cached":
-			m.cachedKB = value
-			fieldsFound++
-		case "Unevictable":
-			m.unevictableKB = value
-			fieldsFound++
-		case "Active":
-			m.activeKB = value
-			fieldsFound++
-		case "SwapCached":
-			m.swapCachedKB = value
-			fieldsFound++
 		}
 
 		// Stop early if we have all target values
@@ -79,44 +56,30 @@ func (m *MemoryInfo) Read() error {
 		}
 	}
 
-	return scanner.Err()
+	usedKB := m.totalKB - m.availableKB
+	usedGB := float64(usedKB) / 1024 / 1024
+	totalGB := float64(m.totalKB) / 1024 / 1024
+
+	usageInGB := fmt.Sprintf("%.1fGB/%.1fGB", usedGB, totalGB)
+
+	m.usageInGB = usageInGB
+
+	return usageInGB, nil
 }
 
-// GetUsedMemory calculates used memory in KB
-func (m *MemoryInfo) GetUsedMemory() uint64 {
-	return m.totalKB - m.availableKB
-}
-
-// GetWiredMemory calculates approximate "wired" memory in KB
-func (m *MemoryInfo) GetWiredMemory() uint64 {
-	return m.unevictableKB + (m.activeKB / 4)
-}
-
-// GetCompressorMemory calculates approximate "compressor" memory in KB
-func (m *MemoryInfo) GetCompressorMemory() uint64 {
-	return m.buffersKB + m.swapCachedKB + m.cachedKB/2
-}
-
-// GetUnusedMemory returns free memory in KB
-func (m *MemoryInfo) GetUnusedMemory() uint64 {
-	return m.freeKB
-}
-
-// FormatSize formats memory size from KB to human-readable format
-func (m *MemoryInfo) FormatSize(kb uint64) string {
-	if kb >= 1024*1024 {
-		gb := float64(kb) / (1024 * 1024)
-		return fmt.Sprintf("%.0fGB", gb)
-	} else if kb >= 1024 {
-		mb := float64(kb) / 1024
-		return fmt.Sprintf("%.0fMB", mb)
+func (m *MemoryInfo) GetPercentageUse() float64 {
+	used := m.totalKB - m.availableKB
+	percentage := 0.0
+	if m.totalKB > 0 {
+		percentage = float64(used) / float64(m.totalKB)
 	}
-	return fmt.Sprintf("%dKB", kb)
+
+	return percentage
+
 }
 
 // NewMemoryInfo creates and reads initial memory information
-func NewMemoryInfo() (*MemoryInfo, error) {
+func NewMemoryInfo() *MemoryInfo {
 	info := &MemoryInfo{}
-	err := info.Read()
-	return info, err
+	return info
 }

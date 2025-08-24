@@ -19,19 +19,22 @@ var baseStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("240"))
 
 type model struct {
-	table        table.Model
-	processes    []*ProcessInfo
-	processMap   map[int]*ProcessInfo
-	cpuStats     *CPUStats
-	coreUsage    map[int]float64
-	lastUpdate   time.Time
-	progressBars map[int]progress.Model
+	table          table.Model
+	processes      []*ProcessInfo
+	processMap     map[int]*ProcessInfo
+	cpuStats       *CPUStats
+	coreUsage      map[int]float64
+	lastUpdate     time.Time
+	progressBars   map[int]progress.Model
+	memoryInfo     *MemoryInfo
+	memProgressBar progress.Model
+	systemInfo     *SystemInfo
 }
 
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Second*2, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
@@ -62,6 +65,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			os.Exit(1)
 		}
 		m.coreUsage = data
+
+		// Update memory info for progress bar
+		_, err = m.memoryInfo.GetUsageInGB()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		err = m.systemInfo.GetUptime()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
 		return m, tickCmd()
 	}
 	m.table, cmd = m.table.Update(msg)
@@ -122,9 +139,16 @@ func (m *model) updateProcessData() {
 func (m model) View() string {
 	// Build CPU cores header
 	headerStr := m.buildCPUCoresHeader()
+
+	// Build memory usage display
+	memoryStr := m.buildMemoryHeader()
+
+	// Build uptime display
+	uptimeStr := m.buildUptimeHeader()
+
 	tableStr := baseStyle.Render(m.table.View())
 
-	return headerStr + "\n\n" + tableStr + "\n\nPress q to quit • Use ↑/↓ to navigate"
+	return headerStr + "\n" + memoryStr + "\n" + uptimeStr + "\n\n" + tableStr + "\n\nPress q to quit • Use ↑/↓ to navigate"
 }
 
 func (m model) buildCPUCoresHeader() string {
@@ -147,8 +171,7 @@ func (m model) buildCPUCoresHeader() string {
 		}
 		progressView := progBar.ViewAs(usage / 100.0)
 
-		label := fmt.Sprintf("%d", coreIndex)
-		coreDisplay := fmt.Sprintf("%s%s", label, progressView)
+		coreDisplay := fmt.Sprintf("CPU%d%s  %2.0f%%", coreIndex, progressView, usage)
 
 		// Add margin around each core display
 		styledCore := lipgloss.NewStyle().
@@ -175,6 +198,29 @@ func (m model) buildCPUCoresHeader() string {
 	leftColumn := lipgloss.JoinVertical(lipgloss.Left, leftCol...)
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left, rightCol...)
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, rightColumn)
+}
+
+func (m model) buildMemoryHeader() string {
+	// Calculate percentage for progress bar
+	percentage := m.memoryInfo.GetPercentageUse()
+	progressView := m.memProgressBar.ViewAs(percentage)
+
+	return fmt.Sprintf("Mem:%s  %2.0f%% %s", progressView, percentage*100, m.memoryInfo.usageInGB)
+}
+
+func (m model) buildUptimeHeader() string {
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#8BE9FD")).
+		Bold(false)
+
+	timeStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#50FA7B")).
+		Bold(true)
+
+	label := labelStyle.Render("Uptime:")
+	time := timeStyle.Render(m.systemInfo.Uptime)
+
+	return fmt.Sprintf("%s %s", label, time)
 }
 
 func main() {
@@ -244,13 +290,27 @@ func main() {
 		progressBars[i] = prog
 	}
 
+	// Create memory progress bar
+	memProgressBar := progress.New(
+		progress.WithScaledGradient("#00ff00", "#ff0000"),
+		progress.WithWidth(availableWidth),
+	)
+
+	// Initialize memory info
+	memoryInfo := NewMemoryInfo()
+
+	systemInfo := NewSystemInfo()
+
 	// Create model
 	m := model{
-		table:        t,
-		processMap:   processMap,
-		cpuStats:     cpuStats,
-		lastUpdate:   time.Now(),
-		progressBars: progressBars,
+		table:          t,
+		processMap:     processMap,
+		cpuStats:       cpuStats,
+		lastUpdate:     time.Now(),
+		progressBars:   progressBars,
+		memoryInfo:     memoryInfo,
+		memProgressBar: memProgressBar,
+		systemInfo:     systemInfo,
 	}
 
 	// Initial data load
