@@ -171,7 +171,7 @@ func (m model) buildCPUCoresHeader() string {
 		}
 		progressView := progBar.ViewAs(usage / 100.0)
 
-		coreDisplay := fmt.Sprintf("CPU%d%s  %2.0f%%", coreIndex, progressView, usage)
+		coreDisplay := fmt.Sprintf("CPU%d %s", coreIndex, progressView)
 
 		// Add margin around each core display
 		styledCore := lipgloss.NewStyle().
@@ -205,7 +205,7 @@ func (m model) buildMemoryHeader() string {
 	percentage := m.memoryInfo.GetPercentageUse()
 	progressView := m.memProgressBar.ViewAs(percentage)
 
-	return fmt.Sprintf("Mem:%s  %2.0f%% %s", progressView, percentage*100, m.memoryInfo.usageInGB)
+	return fmt.Sprintf("Mem:%s %s", progressView, m.memoryInfo.usageInGB)
 }
 
 func (m model) buildUptimeHeader() string {
