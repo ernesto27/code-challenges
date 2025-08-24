@@ -63,16 +63,8 @@ func (c *CPUStats) Read() error {
 		fields := strings.Fields(line)
 
 		if strings.Contains(line, "cpu") {
-			// This is the total CPU line, parse it separately
 
-			// Check if this is a CPU core line (cpu0, cpu1, etc.)
 			if len(fields) < 8 || !strings.HasPrefix(fields[0], "cpu") || fields[0] == "cpu" {
-				values := []*uint64{&c.user, &c.nice, &c.system, &c.idle,
-					&c.iowait, &c.irq, &c.softirq, &c.steal}
-
-				if err := parseCPUFields(fields, values); err != nil {
-					return err
-				}
 				continue
 			}
 
@@ -116,8 +108,40 @@ func (c *CPUStats) CalculateUsage(prev *CPUStats) *CPUUsageBreakdown {
 	}
 }
 
-func (c *CPUStats) CalculateUsagePerCore() {
+func (c *CPUStats) CalculateUsagePerCore() (map[int]float64, error) {
+	resp := map[int]float64{}
 
+	newCpuStats := &CPUStats{}
+	err := newCpuStats.Read()
+	if err != nil {
+		return resp, err
+	}
+
+	for i := range c.cores {
+		prevTotal := c.cores[i].user + c.cores[i].nice + c.cores[i].system + c.cores[i].idle +
+			c.cores[i].iowait + c.cores[i].irq + c.cores[i].softirq + c.cores[i].steal
+
+		currTotal := newCpuStats.cores[i].user + newCpuStats.cores[i].nice + newCpuStats.cores[i].system + newCpuStats.cores[i].idle +
+			newCpuStats.cores[i].iowait + newCpuStats.cores[i].irq + newCpuStats.cores[i].softirq + newCpuStats.cores[i].steal
+
+		prevIdle := c.cores[i].idle + c.cores[i].iowait
+		currIdle := newCpuStats.cores[i].idle + newCpuStats.cores[i].iowait
+
+		deltaTotal := float64(currTotal - prevTotal)
+		deltaIdle := float64(currIdle - prevIdle)
+
+		if deltaTotal == 0 {
+			resp[i] = 0.0
+		} else {
+			usage := (deltaTotal - deltaIdle) / deltaTotal * 100.0
+			resp[i] = usage
+		}
+	}
+
+	// Update current stats with new readings
+	*c = *newCpuStats
+
+	return resp, nil
 }
 
 // getProcessTimes reads /proc/[pid]/stat to get the process's user and system time.

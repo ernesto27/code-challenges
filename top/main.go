@@ -5,12 +5,13 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
 )
 
 var baseStyle = lipgloss.NewStyle().
@@ -22,14 +23,15 @@ type model struct {
 	processes    []*ProcessInfo
 	processMap   map[int]*ProcessInfo
 	cpuStats     *CPUStats
-	prevCPUStats *CPUStats
+	coreUsage    map[int]float64
 	lastUpdate   time.Time
+	progressBars map[int]progress.Model
 }
 
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
@@ -54,6 +56,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tickMsg:
 		m.updateProcessData()
+		data, err := m.cpuStats.CalculateUsagePerCore()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		m.coreUsage = data
 		return m, tickCmd()
 	}
 	m.table, cmd = m.table.Update(msg)
@@ -112,33 +120,61 @@ func (m *model) updateProcessData() {
 }
 
 func (m model) View() string {
-	// System info header
-	currentTime := time.Now()
-
-	var header strings.Builder
-	header.WriteString(fmt.Sprintf("Time: %s", currentTime.Format("15:04:05")))
-
-	// Get CPU info
-	if cpuStats, err := NewCPUStats(); err == nil {
-		if m.prevCPUStats != nil {
-			cpuBreakdown := cpuStats.CalculateUsage(m.prevCPUStats)
-			header.WriteString(fmt.Sprintf(" | CPU: %.1f%% user, %.1f%% sys, %.1f%% idle",
-				cpuBreakdown.userPercent, cpuBreakdown.systemPercent, cpuBreakdown.idlePercent))
-		}
-	}
-
-	// Get memory info
-	if memInfo, err := NewMemoryInfo(); err == nil && memInfo.totalKB > 0 {
-		usedKB := memInfo.GetUsedMemory()
-		unusedKB := memInfo.GetUnusedMemory()
-		header.WriteString(fmt.Sprintf(" | PhysMem: %s used, %s unused",
-			memInfo.FormatSize(usedKB), memInfo.FormatSize(unusedKB)))
-	}
-
-	headerStr := header.String()
+	// Build CPU cores header
+	headerStr := m.buildCPUCoresHeader()
 	tableStr := baseStyle.Render(m.table.View())
 
 	return headerStr + "\n\n" + tableStr + "\n\nPress q to quit • Use ↑/↓ to navigate"
+}
+
+func (m model) buildCPUCoresHeader() string {
+	var coreStrs []string
+
+	// Sort cores by index
+	var coreIndices []int
+	for coreIndex := range m.coreUsage {
+		coreIndices = append(coreIndices, coreIndex)
+	}
+	sort.Ints(coreIndices)
+
+	for _, coreIndex := range coreIndices {
+		usage := m.coreUsage[coreIndex]
+
+		// Get the progress bar for this core
+		progBar, exists := m.progressBars[coreIndex]
+		if !exists {
+			continue
+		}
+		progressView := progBar.ViewAs(usage / 100.0)
+
+		label := fmt.Sprintf("%d", coreIndex)
+		coreDisplay := fmt.Sprintf("%s%s", label, progressView)
+
+		// Add margin around each core display
+		styledCore := lipgloss.NewStyle().
+			MarginRight(2).
+			MarginBottom(0).
+			Render(coreDisplay)
+
+		coreStrs = append(coreStrs, styledCore)
+	}
+
+	// Split cores into left and right columns
+	var leftCol, rightCol []string
+
+	midPoint := (len(coreStrs) + 1) / 2
+
+	for i, coreStr := range coreStrs {
+		if i < midPoint {
+			leftCol = append(leftCol, coreStr)
+		} else {
+			rightCol = append(rightCol, coreStr)
+		}
+	}
+
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left, leftCol...)
+	rightColumn := lipgloss.JoinVertical(lipgloss.Left, rightCol...)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, rightColumn)
 }
 
 func main() {
@@ -146,7 +182,7 @@ func main() {
 	processMap := make(map[int]*ProcessInfo)
 
 	// Take initial CPU reading
-	prevCPUStats, err := NewCPUStats()
+	cpuStats, err := NewCPUStats()
 	if err != nil {
 		fmt.Printf("Error reading CPU stats: %v\n", err)
 		os.Exit(1)
@@ -173,6 +209,7 @@ func main() {
 
 	// Style the table
 	s := table.DefaultStyles()
+	t.SetStyles(s)
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("240")).
@@ -184,12 +221,36 @@ func main() {
 		Bold(false)
 	t.SetStyles(s)
 
+	// Initialize progress bars for CPU cores
+	progressBars := make(map[int]progress.Model)
+
+	// Calculate available width for progress bars
+	// Get terminal width (default to 80 if unavailable)
+	termWidth := 80
+	if w, _, err := term.GetSize(0); err == nil {
+		termWidth = w
+	}
+
+	// Calculate width per progress bar
+	// Account for: core number (2), percentage (6), margins (6), 2 cores per row
+	availableWidth := (termWidth - 20) / 2
+
+	// Create progress bars for detected cores
+	for i := 0; i < len(cpuStats.cores); i++ {
+		prog := progress.New(
+			progress.WithScaledGradient("#00ff00", "#ff0000"),
+			progress.WithWidth(availableWidth),
+		)
+		progressBars[i] = prog
+	}
+
 	// Create model
 	m := model{
 		table:        t,
 		processMap:   processMap,
-		prevCPUStats: prevCPUStats,
+		cpuStats:     cpuStats,
 		lastUpdate:   time.Now(),
+		progressBars: progressBars,
 	}
 
 	// Initial data load
