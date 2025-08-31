@@ -6,10 +6,13 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var processMap = make(map[int]*ProcessInfo)
 
 type ProcessInfo struct {
 	PID       int
@@ -140,7 +143,7 @@ func (p *ProcessInfo) readStatus() error {
 		}
 
 		key := strings.TrimSuffix(fields[0], ":")
-		
+
 		if key == "VmRSS" && len(fields) >= 2 && !foundMemory {
 			value, err := strconv.ParseUint(fields[1], 10, 64)
 			if err == nil {
@@ -273,7 +276,7 @@ func (p *ProcessInfo) GetTime() string {
 
 }
 
-// GetRunningProcesses returns a list of all running processes
+// GetRunningProcesses returns a list of all running processes with CPU calculations
 func GetRunningProcesses() ([]*ProcessInfo, error) {
 	entries, err := os.ReadDir("/proc/")
 	if err != nil {
@@ -294,12 +297,31 @@ func GetRunningProcesses() ([]*ProcessInfo, error) {
 
 		proc, err := NewProcessInfo(pid)
 		if err != nil {
-			// Skip processes we can't read (permission issues, etc.)
 			continue
 		}
 
 		processes = append(processes, proc)
 	}
+
+	// Update CPU calculations
+	for _, proc := range processes {
+		if prevProc, exists := processMap[proc.PID]; exists {
+			// Copy previous measurements
+			proc.PrevUTime = prevProc.UTime
+			proc.PrevSTime = prevProc.STime
+			proc.PrevMeasurementTime = prevProc.PrevMeasurementTime
+			proc.HasPrevMeasurement = prevProc.HasPrevMeasurement
+			proc.CalculateCPUUsage()
+		}
+		proc.UpdateMeasurement()
+		processCopy := *proc
+		processMap[proc.PID] = &processCopy
+	}
+
+	// Sort processes by CPU usage (descending)
+	sort.Slice(processes, func(i, j int) bool {
+		return processes[i].CPUUsage > processes[j].CPUUsage
+	})
 
 	return processes, nil
 }

@@ -21,7 +21,6 @@ var baseStyle = lipgloss.NewStyle().
 type model struct {
 	table          table.Model
 	processes      []*ProcessInfo
-	processMap     map[int]*ProcessInfo
 	cpuStats       *CPUStats
 	coreUsage      map[int]float64
 	lastUpdate     time.Time
@@ -58,7 +57,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tickMsg:
-		m.updateProcessData()
 		data, err := m.cpuStats.CalculateUsagePerCore()
 		if err != nil {
 			fmt.Println(err)
@@ -73,6 +71,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			os.Exit(1)
 		}
 
+		// Get new process data with CPU calculations and sorting
+		newProcesses, err := GetRunningProcesses()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		m.processes = newProcesses
+		m.updateProcessData()
+
 		err = m.systemInfo.GetUptime()
 		if err != nil {
 			fmt.Println(err)
@@ -86,34 +94,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) updateProcessData() {
-	// Get new process data
-	newProcesses, err := GetRunningProcesses()
-	if err != nil {
-		return
-	}
-
-	// Update CPU calculations
-	for _, proc := range newProcesses {
-		if prevProc, exists := m.processMap[proc.PID]; exists {
-			// Copy previous measurements
-			proc.PrevUTime = prevProc.UTime
-			proc.PrevSTime = prevProc.STime
-			proc.PrevMeasurementTime = prevProc.PrevMeasurementTime
-			proc.HasPrevMeasurement = prevProc.HasPrevMeasurement
-			proc.CalculateCPUUsage()
-		}
-		proc.UpdateMeasurement()
-		processCopy := *proc
-		m.processMap[proc.PID] = &processCopy
-	}
-
-	// Sort processes by CPU usage (descending)
-	sort.Slice(newProcesses, func(i, j int) bool {
-		return newProcesses[i].CPUUsage > newProcesses[j].CPUUsage
-	})
-
-	m.processes = newProcesses
-
 	// Convert processes to table rows
 	rows := make([]table.Row, len(m.processes))
 	for i, proc := range m.processes {
@@ -125,6 +105,7 @@ func (m *model) updateProcessData() {
 		rows[i] = table.Row{
 			strconv.Itoa(proc.PID),
 			fmt.Sprintf("%.1f", proc.CPUUsage),
+			proc.FormatMemory(),
 			name,
 			proc.GetTime(),
 			strconv.Itoa(proc.ThreadsCount),
@@ -224,9 +205,6 @@ func (m model) buildUptimeHeader() string {
 }
 
 func main() {
-	// Initialize process data
-	processMap := make(map[int]*ProcessInfo)
-
 	// Take initial CPU reading
 	cpuStats, err := NewCPUStats()
 	if err != nil {
@@ -239,6 +217,7 @@ func main() {
 	columns := []table.Column{
 		{Title: "PID", Width: 8},
 		{Title: "%CPU", Width: 6},
+		{Title: "MEMORY", Width: 8},
 		{Title: "COMMAND", Width: 15},
 		{Title: "TIME+", Width: 9},
 		{Title: "#TH", Width: 4},
@@ -304,7 +283,6 @@ func main() {
 	// Create model
 	m := model{
 		table:          t,
-		processMap:     processMap,
 		cpuStats:       cpuStats,
 		lastUpdate:     time.Now(),
 		progressBars:   progressBars,
