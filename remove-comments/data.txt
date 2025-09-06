@@ -1,0 +1,5 @@
+- Read name file for command param 
+- Read content of file 
+- Search for comments in file 
+- Remove comments from file
+- Write cleaned content to new file
