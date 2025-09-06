@@ -2,7 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"strings"
+
+	"github.com/go-python/gpython/parser"
+	"github.com/go-python/gpython/py"
 )
 
 type RemoveComments struct {
@@ -16,7 +21,14 @@ func newRemoveComments(nameFile string) *RemoveComments {
 		return nil
 	}
 
-	fmt.Println("File content:", string(code))
+	pythonCodeStr := string(code)
+	astRootNode, err := parser.Parse(strings.NewReader(pythonCodeStr), nameFile, py.ExecMode)
+	if err != nil {
+		log.Fatalf("Error parsing Python code: %v", err)
+	}
+
+	fmt.Printf("AST Root Node: %+v\n", astRootNode)
+
 	return &RemoveComments{nameFile: nameFile}
 }
 

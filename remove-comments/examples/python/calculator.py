@@ -93,26 +93,26 @@ def main():
     # Addition example
     x, y = 10, 5
     result = add(x, y)
-    print(f"{x} + {y} = {result}")
+    print("{} + {} = {}".format(x, y, result))
     
     # Subtraction example
     result = subtract(x, y)
-    print(f"{x} - {y} = {result}")
+    print("{} - {} = {}".format(x, y, result))
     
     # Multiplication example
     result = multiply(x, y)
-    print(f"{x} * {y} = {result}")
+    print("{} * {} = {}".format(x, y, result))
     
     # Division example
     try:
         result = divide(x, y)
-        print(f"{x} / {y} = {result}")
+        print("{} / {} = {}".format(x, y, result))
     except ValueError as e:
-        print(f"Error: {e}")
+        print("Error: {}".format(e))
     
     # Power example
     result = power(x, y)
-    print(f"{x} ^ {y} = {result}")
+    print("{} ^ {} = {}".format(x, y, result))
 
 
 # Execute main function if script is run directly
