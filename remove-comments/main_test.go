@@ -87,7 +87,7 @@ func TestIsInsideString(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rc := &RemoveComments{}
+			rc := &RemoveCommentsPython{}
 			result := rc.isInsideString(tc.line, tc.pos)
 			if result != tc.expected {
 				t.Errorf("isInsideString(%q, %d) = %v; expected %v",
@@ -142,7 +142,7 @@ func TestRemoveCommentsFromLine(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rc := &RemoveComments{}
+			rc := &RemoveCommentsPython{}
 			result, keep := rc.removeCommentsFromLine(tc.input)
 			
 			// If expected is empty, we expect the line to be removed
@@ -218,7 +218,7 @@ func TestIsDocstring(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rc := &RemoveComments{}
+			rc := &RemoveCommentsPython{}
 			result := rc.isDocstring(tc.line, tc.prevLines)
 			if result != tc.expected {
 				t.Errorf("isDocstring(%q, %v) = %v; expected %v",
@@ -282,10 +282,13 @@ def test():
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rc := &RemoveComments{}
-			result := rc.removeCommentsAndDocstrings(tc.input)
+			rc := &RemoveCommentsPython{
+				nameFile:        "test.py",
+				originalContent: tc.input,
+			}
+			result := rc.Remove()
 			if result != tc.expected {
-				t.Errorf("removeCommentsAndDocstrings() failed for %s\nGot:\n%q\nExpected:\n%q",
+				t.Errorf("Remove() failed for %s\nGot:\n%q\nExpected:\n%q",
 					tc.name, result, tc.expected)
 			}
 		})
