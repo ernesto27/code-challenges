@@ -317,6 +317,8 @@ func (p *Parser) parseValue() (any, error) {
 		return p.currentToken.Literal, nil
 	case TOKEN_LBRACKET:
 		return p.parseArray()
+	case TOKEN_LBRACE:
+		return p.parseObject()
 	default:
 		return nil, fmt.Errorf("unexpected value type: %s", p.currentToken.Literal)
 	}
